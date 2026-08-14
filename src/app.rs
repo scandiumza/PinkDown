@@ -437,89 +437,103 @@ impl PinkDown {
         egui::TopBottomPanel::top("window-toolbar")
             .exact_height(56.0)
             .show_separator_line(false)
-            .frame(
-                egui::Frame::NONE.inner_margin(egui::Margin {
-                    left: 20,
-                    right: 20,
-                    top: 8,
-                    bottom: 4,
-                }),
-            )
+            .frame(egui::Frame::NONE)
             .show(ctx, |ui| {
-                // Drag region above the editor panels (custom chrome on Windows / macOS).
-                #[cfg(any(target_os = "windows", target_os = "macos"))]
-                configure_title_drag(ui, ctx);
+                let panel = ui.max_rect();
 
-                ui.horizontal(|ui| {
-                    // Keep toolbar chrome clear of the native traffic lights.
-                    #[cfg(target_os = "macos")]
-                    ui.add_space(MACOS_TRAFFIC_LIGHT_INSET);
+                // Caption strip owns the top-right edge so Close is a corner hit
+                // and title-drag never overlaps the buttons.
+                #[cfg(target_os = "windows")]
+                ui.scope_builder(
+                    egui::UiBuilder::new()
+                        .id_salt("window-controls")
+                        .max_rect(caption_strip_rect(panel))
+                        .layout(egui::Layout::right_to_left(egui::Align::Center)),
+                    |ui| window_controls(ui, ctx, self),
+                );
 
-                    ui.vertical(|ui| {
-                        ui.spacing_mut().item_spacing.y = 2.0;
-                        ui.add_space(4.0);
-                        gradient_label(ui, "PinkDown", 14.0);
-                        ui.label(RichText::new("MARKDOWN STUDIO").size(8.0).color(MUTED));
-                    });
-                    ui.add_space(16.0);
+                ui.scope_builder(
+                    egui::UiBuilder::new()
+                        .id_salt("toolbar-content")
+                        .max_rect(toolbar_content_rect(panel)),
+                    |ui| {
+                        #[cfg(any(target_os = "windows", target_os = "macos"))]
+                        configure_title_drag(ui, ctx);
 
-                    if toolbar_button(ui, "Open", 52.0)
-                        .on_hover_text(format!("Open a Markdown file  ({SHORTCUT_MOD}+O)"))
-                        .clicked()
-                    {
-                        self.request_action(PendingAction::OpenDialog, ctx);
-                    }
-                    if toolbar_button(ui, "Save", 52.0)
-                        .on_hover_text(format!("Save the current document  ({SHORTCUT_MOD}+S)"))
-                        .clicked()
-                    {
-                        self.save(false);
-                    }
-                    if toolbar_button(ui, "Save as", 64.0)
-                        .on_hover_text(format!(
-                            "Save the document under a new name  ({SHORTCUT_MOD}+Shift+S)"
-                        ))
-                        .clicked()
-                    {
-                        self.save(true);
-                    }
-                    if toolbar_button(ui, "Font", 52.0)
-                        .on_hover_text("Choose the UI and preview typeface")
-                        .clicked()
-                    {
-                        self.font_settings_draft = Some(self.settings.preferred_font.clone());
-                    }
+                        ui.horizontal(|ui| {
+                            #[cfg(target_os = "macos")]
+                            ui.add_space(MACOS_TRAFFIC_LIGHT_INSET);
 
-                    let export_response = toolbar_button(ui, "Export", 60.0)
-                        .on_hover_text("Export the document as HTML or PDF");
-                    egui::Popup::menu(&export_response).show(|ui| {
-                        ui.set_min_width(148.0);
-                        if ui
-                            .add(egui::Button::new(RichText::new("Export as HTML").size(12.0)))
-                            .clicked()
-                        {
-                            self.export_document(ExportFormat::Html);
-                        }
-                        if ui
-                            .add(egui::Button::new(RichText::new("Export as PDF").size(12.0)))
-                            .clicked()
-                        {
-                            self.export_document(ExportFormat::Pdf);
-                        }
-                    });
+                            ui.vertical(|ui| {
+                                ui.spacing_mut().item_spacing.y = 2.0;
+                                ui.add_space(4.0);
+                                gradient_label(ui, "PinkDown", 14.0);
+                                ui.label(RichText::new("MARKDOWN STUDIO").size(8.0).color(MUTED));
+                            });
+                            ui.add_space(16.0);
 
-                    if toolbar_button(ui, "Check updates", 96.0)
-                        .on_hover_text("Check GitHub Releases for a newer version")
-                        .clicked()
-                    {
-                        self.start_update_check();
-                    }
+                            if toolbar_button(ui, "Open", 52.0)
+                                .on_hover_text(format!(
+                                    "Open a Markdown file  ({SHORTCUT_MOD}+O)"
+                                ))
+                                .clicked()
+                            {
+                                self.request_action(PendingAction::OpenDialog, ctx);
+                            }
+                            if toolbar_button(ui, "Save", 52.0)
+                                .on_hover_text(format!(
+                                    "Save the current document  ({SHORTCUT_MOD}+S)"
+                                ))
+                                .clicked()
+                            {
+                                self.save(false);
+                            }
+                            if toolbar_button(ui, "Save as", 64.0)
+                                .on_hover_text(format!(
+                                    "Save the document under a new name  ({SHORTCUT_MOD}+Shift+S)"
+                                ))
+                                .clicked()
+                            {
+                                self.save(true);
+                            }
+                            if toolbar_button(ui, "Font", 52.0)
+                                .on_hover_text("Choose the UI and preview typeface")
+                                .clicked()
+                            {
+                                self.font_settings_draft = Some(self.settings.preferred_font.clone());
+                            }
 
-                    #[cfg(target_os = "windows")]
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        window_controls(ui, ctx, self);
-                    });
-                });
+                            let export_response = toolbar_button(ui, "Export", 60.0)
+                                .on_hover_text("Export the document as HTML or PDF");
+                            egui::Popup::menu(&export_response).show(|ui| {
+                                ui.set_min_width(148.0);
+                                if ui
+                                    .add(egui::Button::new(
+                                        RichText::new("Export as HTML").size(12.0),
+                                    ))
+                                    .clicked()
+                                {
+                                    self.export_document(ExportFormat::Html);
+                                }
+                                if ui
+                                    .add(egui::Button::new(
+                                        RichText::new("Export as PDF").size(12.0),
+                                    ))
+                                    .clicked()
+                                {
+                                    self.export_document(ExportFormat::Pdf);
+                                }
+                            });
+
+                            if toolbar_button(ui, "Check updates", 96.0)
+                                .on_hover_text("Check GitHub Releases for a newer version")
+                                .clicked()
+                            {
+                                self.start_update_check();
+                            }
+                        });
+                    },
+                );
             });
     }
 
@@ -702,9 +716,26 @@ fn source_panel(ui: &mut egui::Ui, source: &mut String) {
         });
 }
 
+fn toolbar_content_rect(panel: egui::Rect) -> egui::Rect {
+    let mut rect = panel;
+    rect.min.x += 20.0;
+    rect.min.y += 8.0;
+    rect.max.y -= 4.0;
+    #[cfg(target_os = "windows")]
+    {
+        rect.max.x -= CAPTION_STRIP_WIDTH;
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        rect.max.x -= 20.0;
+    }
+    rect
+}
+
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 fn configure_title_drag(ui: &mut egui::Ui, ctx: &egui::Context) {
     // macOS keeps system traffic lights; exclude them so StartDrag does not fight AppKit.
+    // Windows: this Ui is already the leftover content strip (caption buttons are outside).
     #[cfg(target_os = "macos")]
     let drag_rect = {
         let mut rect = ui.max_rect();
@@ -736,7 +767,21 @@ enum WindowButton {
 }
 
 #[cfg(target_os = "windows")]
+const WINDOW_BUTTON_WIDTH: f32 = 36.0;
+
+#[cfg(target_os = "windows")]
+const CAPTION_STRIP_WIDTH: f32 = WINDOW_BUTTON_WIDTH * 3.0;
+
+#[cfg(target_os = "windows")]
+fn caption_strip_rect(panel: egui::Rect) -> egui::Rect {
+    let mut rect = panel;
+    rect.min.x = panel.max.x - CAPTION_STRIP_WIDTH;
+    rect
+}
+
+#[cfg(target_os = "windows")]
 fn window_controls(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut PinkDown) {
+    ui.spacing_mut().item_spacing.x = 0.0;
     if window_button(ui, WindowButton::Close, "Close").clicked() {
         app.request_action(PendingAction::Close, ctx);
     }
@@ -756,12 +801,15 @@ fn window_controls(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut PinkDown) {
 
 #[cfg(target_os = "windows")]
 fn window_button(ui: &mut egui::Ui, kind: WindowButton, tooltip: &str) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(36.0, 30.0), egui::Sense::click());
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(WINDOW_BUTTON_WIDTH, ui.available_height()),
+        egui::Sense::click(),
+    );
     let close = matches!(kind, WindowButton::Close);
     if response.hovered() || response.is_pointer_button_down_on() {
         ui.painter().rect_filled(
             rect,
-            egui::CornerRadius::same(8),
+            0.0,
             if close { LOVE } else { HIGHLIGHT_LOW },
         );
     }
