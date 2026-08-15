@@ -745,7 +745,8 @@ fn configure_title_drag(ui: &mut egui::Ui, ctx: &egui::Context) {
     #[cfg(not(target_os = "macos"))]
     let drag_rect = ui.max_rect();
 
-    let drag = ui.interact(drag_rect, ui.id().with("title-drag"), egui::Sense::drag());
+    // click_and_drag: Sense::drag() has no CLICK bit, so double_clicked never fires.
+    let drag = ui.interact(drag_rect, ui.id().with("title-drag"), egui::Sense::click_and_drag());
     if drag.drag_started() {
         ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
     }
