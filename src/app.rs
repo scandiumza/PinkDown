@@ -25,6 +25,11 @@ const SHORTCUT_MOD: &str = "Ctrl";
 #[cfg(target_os = "macos")]
 const MACOS_TRAFFIC_LIGHT_INSET: f32 = 68.0;
 
+/// Gap between source and preview; also the drag hit strip.
+const EDITOR_SPLIT_GAP: f32 = 12.0;
+/// Neither pane shrinks below this until the window itself is too narrow.
+const EDITOR_MIN_PANE: f32 = 180.0;
+
 pub struct PinkDown {
     document: Document,
     status: String,
@@ -38,6 +43,8 @@ pub struct PinkDown {
     settings: Settings,
     /// Open font dialog; holds a draft typeface id until Apply / Cancel.
     font_settings_draft: Option<String>,
+    /// Source pane share of the two-pane row (0.5 = equal).
+    split_ratio: f32,
 }
 
 enum PendingAction {
@@ -78,6 +85,7 @@ impl PinkDown {
             current_title: "PinkDown".into(),
             settings,
             font_settings_draft: None,
+            split_ratio: 0.5,
         };
         if let Some(path) = initial_path {
             app.open_path(path);
@@ -586,14 +594,35 @@ impl PinkDown {
                 }),
             )
             .show(ctx, |ui| {
-                let available = ui.available_width();
-                ui.columns(2, |columns| {
-                    columns[0].set_width((available - 12.0) * 0.5);
-                    source_panel(&mut columns[0], &mut self.document.text);
-                    preview::panel(
-                        &mut columns[1],
-                        &self.document.text,
-                        &mut self.markdown_cache,
+                let available = ui.available_size();
+                let usable = (available.x - EDITOR_SPLIT_GAP).max(0.0);
+                let min_ratio = if usable > 0.0 {
+                    (EDITOR_MIN_PANE / usable).clamp(0.0, 0.5)
+                } else {
+                    0.5
+                };
+                let ratio = self.split_ratio.clamp(min_ratio, 1.0 - min_ratio);
+
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    ui.set_min_size(available);
+
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(usable * ratio, available.y),
+                        egui::Layout::top_down(egui::Align::Min),
+                        |ui| source_panel(ui, &mut self.document.text),
+                    );
+
+                    let response = editor_splitter(ui, available.y);
+                    if response.dragged() && usable > 0.0 {
+                        self.split_ratio = (ratio + response.drag_delta().x / usable)
+                            .clamp(min_ratio, 1.0 - min_ratio);
+                    }
+
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(ui.available_width(), available.y),
+                        egui::Layout::top_down(egui::Align::Min),
+                        |ui| preview::panel(ui, &self.document.text, &mut self.markdown_cache),
                     );
                 });
             });
@@ -714,6 +743,21 @@ fn source_panel(ui: &mut egui::Ui, source: &mut String) {
                     );
                 });
         });
+}
+
+fn editor_splitter(ui: &mut egui::Ui, height: f32) -> egui::Response {
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(EDITOR_SPLIT_GAP, height), egui::Sense::drag());
+    if response.hovered() || response.dragged() {
+        let color = if response.dragged() { IRIS } else { FOAM };
+        let handle = egui::Rect::from_center_size(
+            rect.center(),
+            egui::vec2(2.0, (rect.height() - 32.0).max(24.0)),
+        );
+        ui.painter().rect_filled(handle, 1.0, color);
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+    }
+    response
 }
 
 fn toolbar_content_rect(panel: egui::Rect) -> egui::Rect {
