@@ -94,8 +94,20 @@ Invoke-Native -Name 'plutil' -Command {
 }
 
 # Stage a drag-to-Applications disk image layout.
+$stagedBundle = Join-Path $stage 'PinkDown.app'
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
-Copy-Item -LiteralPath $bundle -Destination (Join-Path $stage 'PinkDown.app') -Recurse
+Copy-Item -LiteralPath $bundle -Destination $stagedBundle -Recurse
+
+# rustc/ld64 ad-hoc linker-signs the arm64 Mach-O. Left inside an .app,
+# that signature does not seal Info.plist / Resources, so Gatekeeper
+# reports the downloaded bundle as damaged. Replace it with a real
+# ad-hoc app signature (no Apple Developer ID in this project).
+Invoke-Native -Name 'codesign' -Command {
+    & codesign --force --deep --sign - $stagedBundle
+}
+Invoke-Native -Name 'codesign verify' -Command {
+    & codesign --verify --deep --strict $stagedBundle
+}
 Invoke-Native -Name 'ln' -Command {
     & ln -s '/Applications' $applicationsLink
 }

@@ -701,6 +701,8 @@ mod tests {
         assert!(packager.contains("icon_512x512@2x.png"));
         assert!(packager.contains("hdiutil create"));
         assert!(packager.contains("ln -s '/Applications'"));
+        assert!(packager.contains("codesign --force --deep --sign -"));
+        assert!(packager.contains("codesign --verify --deep --strict"));
         assert!(workflow.contains("pinkdown-macos-arm64.dmg"));
         assert!(workflow.contains("pinkdown-macos-x64.dmg"));
     }
