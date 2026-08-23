@@ -2105,7 +2105,7 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
 name = "pinkdown"
-version = "1.8.5"
+version = "1.8.6"
 dependencies = [
  "ab_glyph",
  "chardetng",
@@ -2114,6 +2114,9 @@ dependencies = [
  "encoding_rs",
  "epaint_default_fonts",
  "image",
+ "objc2 0.5.2",
+ "objc2-app-kit 0.2.2",
+ "objc2-foundation 0.2.2",
  "pulldown-cmark",
  "raw-window-handle",
  "rfd",
@@ -2123,6 +2126,7 @@ dependencies = [
  "sha2",
  "ureq",
  "windows-sys 0.59.0",
+ "winit",
  "winres",
 ]
 

@@ -1,6 +1,6 @@
 [package]
 name = "pinkdown"
-version = "1.8.5"
+version = "1.8.6"
 edition = "2021"
 authors = ["PinkDown"]
 description = "A polished, native Markdown reader and editor in Rust."
@@ -35,6 +35,12 @@ windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_Graphics_Dwm",
 ] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.5.2"
+objc2-app-kit = { version = "0.2.2", features = ["NSApplication", "NSResponder"] }
+objc2-foundation = { version = "0.2.2", features = ["NSArray", "NSObject", "NSString", "NSURL"] }
+winit = { version = "0.30.13", default-features = false }
 
 [profile.release]
 opt-level = 3

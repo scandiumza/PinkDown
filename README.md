@@ -19,13 +19,13 @@ PinkDown is a fast, sleek, native split-pane Markdown editor and reader for Wind
 - Choose any installed system typeface for the UI and preview (persisted across launches)
 - Markdown rendering for headings, emphasis, links, inline and fenced code, lists, task items, block quotes, dividers, and tables
 - UTF-8 and UTF-16 file decoding with encoding feedback in the status bar
-- Native, resizable Windows window with drag-and-drop file opening
+- Native, resizable window with drag-and-drop file opening; on macOS, open files from Finder or the Dock
 - GitHub-based update check and install for Windows and macOS releases
 
 ## Using PinkDown
 
 1. Launch the application and write in the left pane; the preview on the right updates as you type.
-2. Select **Open** or drag a Markdown file into the window to edit an existing document.
+2. Select **Open**, drag a Markdown file into the window, or on macOS open a file from Finder or the Dock.
 3. Select **Save** to write changes to the current file, or **Save as** to choose a new location.
 4. Select **Export** to save the document as HTML or PDF. HTML is self-contained and ready to open in a browser; PDF uses a headless Chromium-based browser on your machine (Microsoft Edge or Google Chrome) so the print layout matches the HTML export. Relative images resolve from the open file’s folder. PDF export runs in the background and reports progress in the status bar.
 5. Use **Check updates** to compare the installed version against the latest GitHub tag. If a newer release is available, PinkDown asks for confirmation first. Choosing **Update** downloads the release package (with download progress in the status bar), verifies its published SHA-256 checksum, and installs it after PinkDown closes (Windows setup EXE; macOS DMG → replace `PinkDown.app`).

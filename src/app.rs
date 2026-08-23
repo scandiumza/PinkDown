@@ -432,11 +432,13 @@ impl PinkDown {
             let force_dialog = ctx.input(|input| input.modifiers.shift);
             self.save(force_dialog);
         }
-        if let Some(path) = ctx
+        let path = ctx
             .input(|input| input.raw.dropped_files.clone())
             .into_iter()
-            .find_map(|file| file.path)
-        {
+            .find_map(|file| file.path);
+        #[cfg(target_os = "macos")]
+        let path = crate::macos::take_open_path().or(path);
+        if let Some(path) = path {
             self.request_action(PendingAction::OpenPath(path), ctx);
         }
     }

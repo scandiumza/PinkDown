@@ -4,6 +4,8 @@ mod app;
 mod dialog;
 mod document;
 mod export;
+#[cfg(target_os = "macos")]
+mod macos;
 mod preview;
 mod settings;
 mod theme;
@@ -42,6 +44,10 @@ fn main() -> eframe::Result<()> {
         ..Default::default()
     };
 
+    #[cfg(target_os = "macos")]
+    return macos::run(options, initial_path);
+
+    #[cfg(not(target_os = "macos"))]
     eframe::run_native(
         "PinkDown",
         options,
