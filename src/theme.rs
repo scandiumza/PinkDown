@@ -156,10 +156,10 @@ pub fn configure_preview(ui: &mut egui::Ui) {
 /// preview alike, since both render through the same font families.
 ///
 /// The effect is deliberately app-wide: every text row — editor, preview,
-/// buttons, dialogs — grows by the same amount (~2pt at 13pt text), so the
+/// buttons, dialogs — grows by the same amount (~3pt at 13pt text), so the
 /// whole UI breathes uniformly. Scoping it to the editor and preview alone
 /// would require a dedicated patched font family for those surfaces.
-const EXTRA_LINE_GAP_EM: f32 = 0.15;
+const EXTRA_LINE_GAP_EM: f32 = 0.25;
 
 /// A system face discovered on disk (picker entry).
 ///
