@@ -14,6 +14,7 @@ mod window;
 
 use std::path::PathBuf;
 
+#[cfg(not(target_os = "macos"))]
 use app::PinkDown;
 use eframe::egui;
 

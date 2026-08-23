@@ -55,7 +55,7 @@ declare_class!(
     unsafe impl NSApplicationDelegate for AppDelegate {
         #[method(application:openURLs:)]
         fn application_open_urls(&self, _application: &NSApplication, urls: &NSArray<NSURL>) {
-            if let Some(path) = urls.iter().rev().find_map(|url| file_url_path(&url)) {
+            if let Some(path) = urls.iter().filter_map(|url| file_url_path(&url)).last() {
                 enqueue(path);
             }
         }
