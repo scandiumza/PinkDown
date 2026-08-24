@@ -11,10 +11,7 @@ pub fn panel(ui: &mut egui::Ui, source: &str, cache: &mut CommonMarkCache) {
         .inner_margin(egui::Margin::symmetric(18, 16))
         .show(ui, |ui| {
             ui.set_min_size(ui.available_size());
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("PREVIEW").size(11.0).strong().color(MUTED));
-                ui.label(RichText::new("COMMONMARK").size(10.0).color(MUTED));
-            });
+            ui.label(RichText::new("PREVIEW").size(11.0).strong().color(MUTED));
             ui.add_space(8.0);
             egui::ScrollArea::vertical()
                 .id_salt("preview-scroll")

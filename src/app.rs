@@ -25,6 +25,11 @@ const SHORTCUT_MOD: &str = "Ctrl";
 #[cfg(target_os = "macos")]
 const MACOS_TRAFFIC_LIGHT_INSET: f32 = 68.0;
 
+/// App-drawn caption + command row.
+const TOOLBAR_HEIGHT: f32 = 38.0;
+/// Status line under the editor.
+const STATUSBAR_HEIGHT: f32 = 28.0;
+
 /// Gap between source and preview; also the drag hit strip.
 const EDITOR_SPLIT_GAP: f32 = 12.0;
 /// Neither pane shrinks below this until the window itself is too narrow.
@@ -437,7 +442,7 @@ impl PinkDown {
 
     fn show_toolbar(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("window-toolbar")
-            .exact_height(52.0)
+            .exact_height(TOOLBAR_HEIGHT)
             .show_separator_line(false)
             .frame(egui::Frame::NONE)
             .show(ctx, |ui| {
@@ -457,77 +462,71 @@ impl PinkDown {
                 ui.scope_builder(
                     egui::UiBuilder::new()
                         .id_salt("toolbar-content")
-                        .max_rect(toolbar_content_rect(panel)),
+                        .max_rect(toolbar_content_rect(panel))
+                        .layout(egui::Layout::left_to_right(egui::Align::Center)),
                     |ui| {
                         #[cfg(any(target_os = "windows", target_os = "macos"))]
                         configure_title_drag(ui, ctx);
 
-                        ui.horizontal(|ui| {
-                            #[cfg(target_os = "macos")]
-                            ui.add_space(MACOS_TRAFFIC_LIGHT_INSET);
+                        #[cfg(target_os = "macos")]
+                        ui.add_space(MACOS_TRAFFIC_LIGHT_INSET);
 
-                            brand(ui);
-                            ui.add_space(16.0);
+                        brand(ui);
+                        ui.add_space(16.0);
 
-                            if toolbar_button(ui, "Open", 52.0)
-                                .on_hover_text(format!("Open a Markdown file  ({SHORTCUT_MOD}+O)"))
-                                .clicked()
-                            {
-                                self.request_action(PendingAction::OpenDialog, ctx);
-                            }
-                            if toolbar_button(ui, "Save", 52.0)
-                                .on_hover_text(format!(
-                                    "Save the current document  ({SHORTCUT_MOD}+S)"
+                        if toolbar_button(ui, "Open", 52.0)
+                            .on_hover_text(format!("Open a Markdown file  ({SHORTCUT_MOD}+O)"))
+                            .clicked()
+                        {
+                            self.request_action(PendingAction::OpenDialog, ctx);
+                        }
+                        if toolbar_button(ui, "Save", 52.0)
+                            .on_hover_text(format!("Save the current document  ({SHORTCUT_MOD}+S)"))
+                            .clicked()
+                        {
+                            self.save(false);
+                        }
+                        if toolbar_button(ui, "Save as", 64.0)
+                            .on_hover_text(format!(
+                                "Save the document under a new name  ({SHORTCUT_MOD}+Shift+S)"
+                            ))
+                            .clicked()
+                        {
+                            self.save(true);
+                        }
+                        if toolbar_button(ui, "Font", 52.0)
+                            .on_hover_text("Choose the UI and preview typeface")
+                            .clicked()
+                        {
+                            self.font_settings_draft = Some(self.settings.preferred_font.clone());
+                        }
+
+                        let export_response = toolbar_button(ui, "Export", 60.0)
+                            .on_hover_text("Export the document as HTML or PDF");
+                        egui::Popup::menu(&export_response).show(|ui| {
+                            ui.set_min_width(148.0);
+                            if ui
+                                .add(egui::Button::new(
+                                    RichText::new("Export as HTML").size(12.0),
                                 ))
                                 .clicked()
                             {
-                                self.save(false);
+                                self.export_document(ExportFormat::Html);
                             }
-                            if toolbar_button(ui, "Save as", 64.0)
-                                .on_hover_text(format!(
-                                    "Save the document under a new name  ({SHORTCUT_MOD}+Shift+S)"
-                                ))
+                            if ui
+                                .add(egui::Button::new(RichText::new("Export as PDF").size(12.0)))
                                 .clicked()
                             {
-                                self.save(true);
-                            }
-                            if toolbar_button(ui, "Font", 52.0)
-                                .on_hover_text("Choose the UI and preview typeface")
-                                .clicked()
-                            {
-                                self.font_settings_draft =
-                                    Some(self.settings.preferred_font.clone());
-                            }
-
-                            let export_response = toolbar_button(ui, "Export", 60.0)
-                                .on_hover_text("Export the document as HTML or PDF");
-                            egui::Popup::menu(&export_response).show(|ui| {
-                                ui.set_min_width(148.0);
-                                if ui
-                                    .add(egui::Button::new(
-                                        RichText::new("Export as HTML").size(12.0),
-                                    ))
-                                    .clicked()
-                                {
-                                    self.export_document(ExportFormat::Html);
-                                }
-                                if ui
-                                    .add(egui::Button::new(
-                                        RichText::new("Export as PDF").size(12.0),
-                                    ))
-                                    .clicked()
-                                {
-                                    self.export_document(ExportFormat::Pdf);
-                                }
-                            });
-
-                            if toolbar_button(ui, "Check updates", 96.0)
-                                .on_hover_text("Check GitHub Releases for a newer version")
-                                .clicked()
-                            {
-                                self.start_update_check();
+                                self.export_document(ExportFormat::Pdf);
                             }
                         });
+
+                        if toolbar_button(ui, "Check updates", 96.0)
+                            .on_hover_text("Check GitHub Releases for a newer version")
+                            .clicked()
+                        {
+                            self.start_update_check();
+                        }
                     },
                 );
             });
@@ -535,40 +534,48 @@ impl PinkDown {
 
     fn show_statusbar(&self, ctx: &egui::Context) {
         egui::TopBottomPanel::bottom("statusbar")
-            .exact_height(36.0)
+            .exact_height(STATUSBAR_HEIGHT)
             .show_separator_line(false)
-            .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(8, 4)))
+            .frame(egui::Frame::NONE.inner_margin(egui::Margin {
+                left: 8,
+                right: 8,
+                top: 0,
+                bottom: 8,
+            }))
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.add_space(14.0);
-                    let color = if self.document.is_dirty() {
-                        GOLD
-                    } else {
-                        SUBTLE
-                    };
-                    let path = self
-                        .document
-                        .path()
-                        .map_or_else(|| "Untitled".to_owned(), |path| path.display().to_string());
-                    ui.label(RichText::new(path).size(12.0).color(color));
-                    ui.label(RichText::new(&self.status).size(11.0).color(MUTED));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.allocate_ui_with_layout(
+                    ui.available_size(),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
                         ui.add_space(14.0);
-                        ui.label(
-                            RichText::new(format!(
-                                "{} words",
-                                self.document.text.split_whitespace().count()
-                            ))
-                            .size(11.0)
-                            .color(MUTED),
+                        let color = if self.document.is_dirty() {
+                            GOLD
+                        } else {
+                            SUBTLE
+                        };
+                        let path = self.document.path().map_or_else(
+                            || "Untitled".to_owned(),
+                            |path| path.display().to_string(),
                         );
-                        ui.label(
-                            RichText::new(format!("{} lines", self.document.text.lines().count()))
-                                .size(11.0)
-                                .color(MUTED),
-                        );
-                    });
-                });
+                        chrome_text(ui, &path, 12.0, color);
+                        chrome_text(ui, &self.status, 11.0, MUTED);
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.add_space(14.0);
+                            chrome_text(
+                                ui,
+                                &format!("{} words", self.document.text.split_whitespace().count()),
+                                11.0,
+                                MUTED,
+                            );
+                            chrome_text(
+                                ui,
+                                &format!("{} lines", self.document.text.lines().count()),
+                                11.0,
+                                MUTED,
+                            );
+                        });
+                    },
+                );
             });
     }
 
@@ -638,39 +645,59 @@ fn paint_window_shell(ctx: &egui::Context) {
     painter.rect_filled(ctx.screen_rect(), 0.0, BASE);
 }
 
-fn toolbar_button(ui: &mut egui::Ui, label: &str, width: f32) -> egui::Response {
-    ui.scope(|ui| {
-        let widgets = &mut ui.style_mut().visuals.widgets;
-        for visuals in [
-            &mut widgets.inactive,
-            &mut widgets.hovered,
-            &mut widgets.active,
-        ] {
-            visuals.bg_fill = Color32::TRANSPARENT;
-            visuals.weak_bg_fill = Color32::TRANSPARENT;
-            visuals.bg_stroke = egui::Stroke::NONE;
-        }
-        // Stay in the muted gray-violet ladder so toolbar chrome stays quiet.
-        widgets.inactive.fg_stroke.color = MUTED;
-        widgets.hovered.fg_stroke.color = SUBTLE;
-        widgets.active.fg_stroke.color = TEXT;
+fn paint_chrome_label(ui: &mut egui::Ui, rect: egui::Rect, text: &str, size: f32, color: Color32) {
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        text,
+        FontId::new(size, FontFamily::Proportional),
+        color,
+    );
+}
 
-        ui.add_sized(
-            [width, 30.0],
-            egui::Button::new(RichText::new(label).size(12.0))
-                .frame(true)
-                .frame_when_inactive(false),
-        )
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
-    })
-    .inner
+fn toolbar_button(ui: &mut egui::Ui, label: &str, width: f32) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(width, ui.available_height()),
+        egui::Sense::click(),
+    );
+    let color = if response.is_pointer_button_down_on() {
+        TEXT
+    } else if response.hovered() {
+        SUBTLE
+    } else {
+        MUTED
+    };
+    paint_chrome_label(ui, rect, label, 12.0, color);
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+fn chrome_text(ui: &mut egui::Ui, text: &str, size: f32, color: Color32) {
+    let width = ui.fonts(|fonts| {
+        fonts
+            .layout_no_wrap(
+                text.to_owned(),
+                FontId::new(size, FontFamily::Proportional),
+                color,
+            )
+            .size()
+            .x
+    });
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(width, ui.available_height()),
+        egui::Sense::hover(),
+    );
+    paint_chrome_label(ui, rect, text, size, color);
 }
 
 fn brand(ui: &mut egui::Ui) {
-    const SIZE: egui::Vec2 = egui::vec2(96.0, 32.0);
-    const SUBTITLE_Y: f32 = 16.0;
+    const WIDTH: f32 = 96.0;
+    const SUBTITLE_DY: f32 = 14.0;
+    const TOP_NUDGE: f32 = 1.0;
 
-    let (rect, _) = ui.allocate_exact_size(SIZE, egui::Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(WIDTH, ui.available_height()),
+        egui::Sense::hover(),
+    );
     let text = "PinkDown";
     let denominator = text.chars().count().saturating_sub(1).max(1) as f32;
     let mut job = egui::text::LayoutJob::default();
@@ -685,7 +712,7 @@ fn brand(ui: &mut egui::Ui) {
             &character.to_string(),
             0.0,
             TextFormat {
-                font_id: FontId::new(14.0, FontFamily::Monospace),
+                font_id: FontId::new(13.0, FontFamily::Monospace),
                 color,
                 ..Default::default()
             },
@@ -693,14 +720,19 @@ fn brand(ui: &mut egui::Ui) {
     }
 
     let title = ui.fonts(|fonts| fonts.layout_job(job));
-    ui.painter().galley(rect.min, title, Color32::WHITE);
-    ui.painter().text(
-        rect.min + egui::vec2(0.0, SUBTITLE_Y),
-        egui::Align2::LEFT_TOP,
-        "MARKDOWN EDITOR",
-        FontId::new(8.0, FontFamily::Proportional),
-        MUTED,
-    );
+    let subtitle = ui.fonts(|fonts| {
+        fonts.layout_no_wrap(
+            "MARKDOWN EDITOR".into(),
+            FontId::new(8.0, FontFamily::Proportional),
+            MUTED,
+        )
+    });
+    let stack_h = SUBTITLE_DY + subtitle.size().y;
+    let top = rect.center().y - stack_h * 0.5 + TOP_NUDGE;
+    ui.painter()
+        .galley(egui::pos2(rect.left(), top), title, Color32::WHITE);
+    ui.painter()
+        .galley(egui::pos2(rect.left(), top + SUBTITLE_DY), subtitle, MUTED);
 }
 
 fn lerp_color(from: Color32, to: Color32, amount: f32) -> Color32 {
@@ -722,10 +754,7 @@ fn source_panel(ui: &mut egui::Ui, source: &mut String) {
         .inner_margin(egui::Margin::symmetric(18, 16))
         .show(ui, |ui| {
             ui.set_min_size(ui.available_size());
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("SOURCE").size(11.0).strong().color(MUTED));
-                ui.label(RichText::new("MARKDOWN").size(10.0).color(MUTED));
-            });
+            ui.label(RichText::new("SOURCE").size(11.0).strong().color(MUTED));
             ui.add_space(8.0);
             egui::ScrollArea::vertical()
                 .id_salt("source-scroll")
@@ -763,8 +792,6 @@ fn editor_splitter(ui: &mut egui::Ui, height: f32) -> egui::Response {
 fn toolbar_content_rect(panel: egui::Rect) -> egui::Rect {
     let mut rect = panel;
     rect.min.x += 20.0;
-    rect.min.y += 8.0;
-    rect.max.y -= 4.0;
     #[cfg(target_os = "windows")]
     {
         rect.max.x -= CAPTION_STRIP_WIDTH;
