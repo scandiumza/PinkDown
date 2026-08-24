@@ -283,8 +283,12 @@ mod tests {
 
     #[test]
     fn html_export_contains_rendered_heading() {
-        let html =
-            render_html_document("# Hello\n\nParagraph with **bold**.", "Doc", HtmlSkin::Screen, None);
+        let html = render_html_document(
+            "# Hello\n\nParagraph with **bold**.",
+            "Doc",
+            HtmlSkin::Screen,
+            None,
+        );
         assert!(html.contains("<h1>Hello</h1>"));
         assert!(html.contains("<strong>bold</strong>"));
         assert!(html.contains("<title>Doc</title>"));
@@ -308,12 +312,8 @@ mod tests {
     #[test]
     fn rewrites_relative_image_to_file_url() {
         let base = std::env::temp_dir();
-        let html = render_html_document(
-            "![alt](./photo.png)",
-            "Doc",
-            HtmlSkin::Screen,
-            Some(&base),
-        );
+        let html =
+            render_html_document("![alt](./photo.png)", "Doc", HtmlSkin::Screen, Some(&base));
         assert!(
             html.contains("file:") && html.contains("photo.png"),
             "expected file URL for relative image, got: {html}"

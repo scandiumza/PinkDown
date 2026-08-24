@@ -1,8 +1,8 @@
 use eframe::egui::{self, Color32, FontFamily, FontId, RichText};
 
 use crate::theme::{
-    self, BASE, FOAM, GOLD, HIGHLIGHT_LOW, HIGHLIGHT_MED, LOVE, MUTED, PINE, ROSE, SUBTLE, SURFACE,
-    TEXT, FONT_AUTO,
+    self, BASE, FOAM, FONT_AUTO, GOLD, HIGHLIGHT_LOW, HIGHLIGHT_MED, LOVE, MUTED, PINE, ROSE,
+    SUBTLE, SURFACE, TEXT,
 };
 
 #[derive(Clone, Copy)]
@@ -219,14 +219,7 @@ pub fn update_available(
                     124.0_f32,
                 ),
             };
-            dialog_heading(
-                ui,
-                "\u{2191}",
-                18.0,
-                FOAM,
-                "Update available",
-                &subtitle,
-            );
+            dialog_heading(ui, "\u{2191}", 18.0, FOAM, "Update available", &subtitle);
             ui.add_space(18.0);
             message_panel(ui, &body);
             ui.add_space(20.0);

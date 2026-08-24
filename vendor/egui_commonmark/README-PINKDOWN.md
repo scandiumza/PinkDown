@@ -8,7 +8,9 @@ PinkDown changes:
 - responsive, wrapping table rows rendered from upstream `TableCell` events;
 - fenced-code framing with PinkDown-compatible padding, radius, and shadow;
 - optional `Heading1` through `Heading6` named egui text styles;
-- heading colors sourced from existing egui visual roles.
+- heading colors sourced from existing egui visual roles;
+- inline code rendered as accent-colored monospace text without a background;
+- compact spacing between headings and the following block.
 
 No source-text splitting or secondary Markdown grammar is used. When upgrading the
 crate, reapply the changes in `src/parsers/pulldown.rs` and run the workspace tests.

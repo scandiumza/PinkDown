@@ -88,6 +88,7 @@ impl Default for Document {
 
 impl Document {
     pub fn load(path: PathBuf) -> Result<Self, String> {
+        let path = into_absolute(path)?;
         let bytes = fs::read(&path).map_err(|error| format!("Could not open file: {error}"))?;
         let (text, encoding) = decode(&bytes)
             .map_err(|error| format!("Could not decode {}: {error}", display_name(&path)))?;
@@ -107,6 +108,10 @@ impl Document {
         self.path
             .as_deref()
             .map_or_else(|| "Untitled".to_owned(), display_name)
+    }
+
+    pub fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
     }
 
     /// Directory of the open file, used to resolve relative export assets.
@@ -152,6 +157,7 @@ impl Document {
         let Some(path) = path else {
             return Ok(false);
         };
+        let path = into_absolute(path)?;
 
         let bytes = self
             .encoding
@@ -168,6 +174,16 @@ pub fn pick_markdown_file() -> Option<PathBuf> {
     FileDialog::new()
         .add_filter("Markdown", &["md", "markdown", "mdx", "txt"])
         .pick_file()
+}
+
+fn into_absolute(path: PathBuf) -> Result<PathBuf, String> {
+    if path.is_absolute() {
+        Ok(path)
+    } else {
+        std::env::current_dir()
+            .map(|directory| directory.join(path))
+            .map_err(|error| format!("Could not resolve document path: {error}"))
+    }
 }
 
 fn display_name(path: &Path) -> String {
@@ -299,8 +315,7 @@ mod tests {
     #[test]
     fn window_title_reflects_path_and_dirty_state() {
         let pid = std::process::id();
-        let title_path =
-            std::env::temp_dir().join(format!("pinkdown-document-{pid}-title.md"));
+        let title_path = std::env::temp_dir().join(format!("pinkdown-document-{pid}-title.md"));
         fs::write(&title_path, "hello").unwrap();
         let document = Document::load(title_path.clone()).unwrap();
         let expected = format!("pinkdown-document-{pid}-title.md");
@@ -310,8 +325,7 @@ mod tests {
         let untitled = Document::default();
         assert_eq!(untitled.window_title(), None);
 
-        let dirty_path =
-            std::env::temp_dir().join(format!("pinkdown-document-{pid}-dirty.md"));
+        let dirty_path = std::env::temp_dir().join(format!("pinkdown-document-{pid}-dirty.md"));
         fs::write(&dirty_path, "hello").unwrap();
         let mut dirty = Document::load(dirty_path.clone()).unwrap();
         dirty.text.push('!');
@@ -320,5 +334,15 @@ mod tests {
             Some(format!("pinkdown-document-{pid}-dirty.md*"))
         );
         let _ = fs::remove_file(dirty_path);
+    }
+
+    #[test]
+    fn loaded_document_paths_are_absolute() {
+        let path =
+            std::env::temp_dir().join(format!("pinkdown-document-{}-path.md", std::process::id()));
+        fs::write(&path, "hello").expect("write fixture");
+        let document = Document::load(path.clone()).expect("load fixture");
+        assert!(document.path().is_some_and(Path::is_absolute));
+        let _ = fs::remove_file(path);
     }
 }

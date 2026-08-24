@@ -8,23 +8,29 @@
 //! interact zones + `ViewportCommand::BeginResize`. The top edge middle is left
 //! clear so the toolbar title-drag region keeps StartDrag / double-click zoom.
 //!
-//! egui-winit treats every `WindowEvent::Moved` as "repaint now". A title-bar
-//! drag therefore rebuilds the editor + preview on each mouse sample. The
-//! WndProc filter drops move-only `WM_WINDOWPOSCHANGED` so DWM slides the last
-//! frame; size-changing moves still reach winit (snap / edge resize).
+//! During a native title drag Windows runs a modal move loop. Both
+//! `WM_WINDOWPOSCHANGED` and `WM_PAINT` otherwise reach winit and make eframe
+//! rebuild the editor and preview for every pointer sample. The WndProc filter
+//! keeps DWM moving the last frame, while resize and snap `WM_SIZE` messages
+//! still reach winit.
+
+use eframe::egui;
 
 #[cfg(target_os = "windows")]
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 #[cfg(target_os = "windows")]
 use eframe::egui::{
-    self, CursorIcon, Id, Order, Pos2, Rect, ResizeDirection, Sense, Vec2, ViewportCommand,
+    CursorIcon, Id, Order, Pos2, Rect, ResizeDirection, Sense, Vec2, ViewportCommand,
 };
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 
 #[cfg(target_os = "windows")]
 static CHROME_CONFIGURED: AtomicBool = AtomicBool::new(false);
+/// Set before eframe starts a native title drag; cleared when its modal loop ends.
+#[cfg(target_os = "windows")]
+static TITLE_DRAG_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 /// Previous WndProc as `usize`; `0` until [`install_move_filter`] succeeds.
 #[cfg(target_os = "windows")]
@@ -42,7 +48,7 @@ const RESIZE_BORDER: f32 = 6.0;
 #[cfg(target_os = "windows")]
 const RESIZE_CORNER: f32 = 12.0;
 
-/// One entry for Windows chrome: DWM polish, move-repaint filter, resize zones.
+/// One entry for Windows chrome: DWM polish, drag-repaint filter, resize zones.
 ///
 /// Call once per frame from `App::update` **before** main UI so edge zones
 /// participate in the same interact pass as the toolbar.
@@ -50,6 +56,14 @@ const RESIZE_CORNER: f32 = 12.0;
 pub fn frame_chrome(ctx: &egui::Context, window: &impl raw_window_handle::HasWindowHandle) {
     configure_chrome_once(window);
     handle_resize(ctx);
+}
+
+/// Start a native title drag. Windows also marks the modal move loop so
+/// redundant paint and move messages do not rebuild the full egui scene.
+pub fn begin_title_drag(ctx: &egui::Context) {
+    #[cfg(target_os = "windows")]
+    TITLE_DRAG_ACTIVE.store(true, Ordering::Release);
+    ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
 }
 
 #[cfg(target_os = "windows")]
@@ -203,7 +217,9 @@ fn resize_zone(
         .sense(Sense::drag())
         .default_size(rect.size())
         .constrain(false)
-        .show(ctx, |ui| ui.allocate_exact_size(rect.size(), Sense::drag()).1)
+        .show(ctx, |ui| {
+            ui.allocate_exact_size(rect.size(), Sense::drag()).1
+        })
         .inner;
 
     if response.hovered() || response.is_pointer_button_down_on() {
@@ -214,15 +230,14 @@ fn resize_zone(
     }
 }
 
-/// True when `WM_WINDOWPOSCHANGED` is a move that does not change size.
+/// True for messages whose default processing is sufficient during title drag.
 ///
-/// Those are the events that make egui-winit request a full frame during
-/// title drag. Resize-with-move (snap, edge drag) must still reach winit so
-/// the GL surface is resized and the window does not flicker.
+/// `DefWindowProcW(WM_WINDOWPOSCHANGED)` still emits `WM_SIZE` when snapping,
+/// so winit can resize the GL surface without seeing the redundant move event.
 #[cfg(target_os = "windows")]
-fn is_move_only(windowpos_flags: u32) -> bool {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{SWP_NOMOVE, SWP_NOSIZE};
-    windowpos_flags & SWP_NOMOVE == 0 && windowpos_flags & SWP_NOSIZE != 0
+fn bypass_winit_during_title_drag(msg: u32, active: bool) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{WM_PAINT, WM_WINDOWPOSCHANGED};
+    active && matches!(msg, WM_PAINT | WM_WINDOWPOSCHANGED)
 }
 
 #[cfg(target_os = "windows")]
@@ -257,16 +272,28 @@ unsafe extern "system" fn move_filter_wndproc(
     lparam: LPARAM,
 ) -> LRESULT {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        DefWindowProcW, WM_WINDOWPOSCHANGED, WINDOWPOS,
+        DefWindowProcW, PostMessageW, WM_EXITSIZEMOVE, WM_LBUTTONUP, WM_PAINT,
     };
 
-    if msg == WM_WINDOWPOSCHANGED && lparam != 0 {
-        // SAFETY: lparam is the WINDOWPOS* Windows documents for this message.
-        let flags = unsafe { (*(lparam as *const WINDOWPOS)).flags };
-        if is_move_only(flags) {
-            // Skip winit so it never emits WindowEvent::Moved.
-            return unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) };
+    if msg == WM_EXITSIZEMOVE {
+        let was_title_drag = TITLE_DRAG_ACTIVE.swap(false, Ordering::AcqRel);
+        let result = call_orig(hwnd, msg, wparam, lparam);
+        if was_title_drag {
+            // Render once at the final position after suppressing modal-loop paints.
+            unsafe { PostMessageW(hwnd, WM_PAINT, 0, 0) };
         }
+        return result;
+    }
+
+    let active = TITLE_DRAG_ACTIVE.load(Ordering::Acquire);
+    if bypass_winit_during_title_drag(msg, active) {
+        return unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) };
+    }
+
+    // StartDrag can be ignored (for example if focus changed before eframe
+    // executes the command). Do not leave filtering armed after pointer-up.
+    if msg == WM_LBUTTONUP {
+        TITLE_DRAG_ACTIVE.store(false, Ordering::Release);
     }
 
     call_orig(hwnd, msg, wparam, lparam)
@@ -281,19 +308,27 @@ fn call_orig(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
         return unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) };
     }
     // SAFETY: orig is the WndProc GetWindowLongPtrW returned before we swapped.
-    unsafe { CallWindowProcW(Some(std::mem::transmute::<usize, WndProc>(orig)), hwnd, msg, wparam, lparam) }
+    unsafe {
+        CallWindowProcW(
+            Some(std::mem::transmute::<usize, WndProc>(orig)),
+            hwnd,
+            msg,
+            wparam,
+            lparam,
+        )
+    }
 }
 
 #[cfg(all(test, target_os = "windows"))]
 mod tests {
-    use super::is_move_only;
-    use windows_sys::Win32::UI::WindowsAndMessaging::{SWP_NOMOVE, SWP_NOSIZE};
+    use super::bypass_winit_during_title_drag;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{WM_PAINT, WM_SIZE, WM_WINDOWPOSCHANGED};
 
     #[test]
-    fn suppresses_only_move_without_resize() {
-        assert!(is_move_only(SWP_NOSIZE));
-        assert!(!is_move_only(0));
-        assert!(!is_move_only(SWP_NOMOVE));
-        assert!(!is_move_only(SWP_NOSIZE | SWP_NOMOVE));
+    fn bypasses_only_redundant_title_drag_messages() {
+        assert!(bypass_winit_during_title_drag(WM_WINDOWPOSCHANGED, true));
+        assert!(bypass_winit_during_title_drag(WM_PAINT, true));
+        assert!(!bypass_winit_during_title_drag(WM_SIZE, true));
+        assert!(!bypass_winit_during_title_drag(WM_WINDOWPOSCHANGED, false));
     }
 }

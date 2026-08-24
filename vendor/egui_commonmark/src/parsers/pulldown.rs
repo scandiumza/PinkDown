@@ -690,15 +690,20 @@ impl CommonMarkViewerInternal {
                 }
             }
             pulldown_cmark::Event::DisplayMath(tex) => {
+                self.line.try_insert_start(ui);
                 if let Some(math_fn) = options.math_fn {
                     math_fn(ui, &tex, false);
                 }
+                self.line.try_insert_end(ui);
             }
         }
     }
 
     fn event_text(&mut self, text: CowStr, ui: &mut Ui) {
-        let mut rich_text = self.text_style.to_richtext(ui, &text);
+        let inline_code = self.text_style.code;
+        let mut style = self.text_style.clone();
+        style.code = false;
+        let mut rich_text = style.to_richtext(ui, &text);
         if let Some(level) = self.text_style.heading {
             let heading_style = TextStyle::Name(format!("Heading{}", level + 1).into());
             if let Some(font_id) = ui.style().text_styles.get(&heading_style) {
@@ -711,6 +716,11 @@ impl CommonMarkViewerInternal {
                 _ => ui.visuals().text_color(),
             };
             rich_text = rich_text.color(color);
+        }
+        if inline_code {
+            rich_text = rich_text
+                .monospace()
+                .color(ui.visuals().hyperlink_color);
         }
         if let Some(image) = &mut self.image {
             image.alt_text.push(rich_text);
@@ -854,7 +864,8 @@ impl CommonMarkViewerInternal {
                 self.line.try_insert_end(ui);
             }
             pulldown_cmark::TagEnd::Heading { .. } => {
-                self.line.try_insert_end(ui);
+                // The next block inserts the line break. Avoid adding a second
+                // blank row between the heading and its content.
                 self.text_style.heading = None;
             }
             pulldown_cmark::TagEnd::BlockQuote(_) => {}

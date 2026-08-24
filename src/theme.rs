@@ -330,9 +330,7 @@ fn lookup_by_stem<'a>(catalog: &'a FontCatalog, stem: &str) -> Option<&'a FontOp
 }
 
 fn looks_like_path(value: &str) -> bool {
-    value.contains('/')
-        || value.contains('\\')
-        || Path::new(value).is_absolute()
+    value.contains('/') || value.contains('\\') || Path::new(value).is_absolute()
 }
 
 fn strip_font_extension(name: &str) -> &str {
@@ -381,10 +379,22 @@ fn legacy_id_stems(id: &str) -> &'static [&'static str] {
         "fangsong" => &["simfang"],
         "segoeui" => &["segoeui"],
         "pingfang" => &["pingfang", "pingfangui"],
-        "heiti" => &["STHeiti Light", "STHeiti Medium", "stheiti light", "stheiti medium"],
+        "heiti" => &[
+            "STHeiti Light",
+            "STHeiti Medium",
+            "stheiti light",
+            "stheiti medium",
+        ],
         "songti" => &["Songti", "songti"],
         "kaiti" => &["Kaiti", "kaiti"],
-        "sf-pro" => &["SFNS", "SFNSText", "SFNSDisplay", "SFNSRounded", "sfns", "sf-pro"],
+        "sf-pro" => &[
+            "SFNS",
+            "SFNSText",
+            "SFNSDisplay",
+            "SFNSRounded",
+            "sfns",
+            "sf-pro",
+        ],
         "noto-cjk" | "noto-cjk-tt" | "noto-sans-cjk" => &[
             "NotoSansCJK-Regular",
             "NotoSansSC-Regular",
@@ -471,7 +481,12 @@ fn font_search_dirs() -> Vec<PathBuf> {
         dirs.push(PathBuf::from("/usr/share/fonts"));
         dirs.push(PathBuf::from("/usr/local/share/fonts"));
         if let Ok(home) = std::env::var("HOME") {
-            dirs.push(PathBuf::from(&home).join(".local").join("share").join("fonts"));
+            dirs.push(
+                PathBuf::from(&home)
+                    .join(".local")
+                    .join("share")
+                    .join("fonts"),
+            );
             dirs.push(PathBuf::from(home).join(".fonts"));
         }
     }
@@ -512,11 +527,7 @@ fn label_from_path(path: &Path) -> String {
     let stem = path
         .file_stem()
         .and_then(|s| s.to_str())
-        .unwrap_or_else(|| {
-            path.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("Font")
-        });
+        .unwrap_or_else(|| path.file_name().and_then(|n| n.to_str()).unwrap_or("Font"));
     match stem.to_ascii_lowercase().as_str() {
         "msyh" => "Microsoft YaHei".to_owned(),
         "msyhbd" => "Microsoft YaHei Bold".to_owned(),
@@ -786,8 +797,8 @@ fn line_height_units(bytes: &[u8], hhea: usize, os2: Option<usize>) -> Option<f3
     let hhea_asc = i16::from_be_bytes([bytes[hhea + 4], bytes[hhea + 5]]);
     let hhea_desc = i16::from_be_bytes([bytes[hhea + 6], bytes[hhea + 7]]);
     let os2 = os2.filter(|&o| o + 74 <= bytes.len());
-    let use_typo = os2
-        .is_some_and(|o| i16::from_be_bytes([bytes[o + 62], bytes[o + 63]]) & 0x0080 != 0);
+    let use_typo =
+        os2.is_some_and(|o| i16::from_be_bytes([bytes[o + 62], bytes[o + 63]]) & 0x0080 != 0);
     let (asc, desc) = if use_typo || hhea_asc == 0 || hhea_desc == 0 {
         let os2 = os2?;
         (
@@ -901,14 +912,11 @@ mod tests {
             epaint_default_fonts::HACK_REGULAR,
         ] {
             let original = ab_glyph::FontVec::try_from_vec(font.to_vec()).unwrap();
-            let patched = ab_glyph::FontVec::try_from_vec(patch_line_gap(
-                font.to_vec(),
-                EXTRA_LINE_GAP_EM,
-            ))
-            .unwrap();
+            let patched =
+                ab_glyph::FontVec::try_from_vec(patch_line_gap(font.to_vec(), EXTRA_LINE_GAP_EM))
+                    .unwrap();
             let expected = EXTRA_LINE_GAP_EM * 13.0;
-            let actual =
-                patched.as_scaled(13.0).line_gap() - original.as_scaled(13.0).line_gap();
+            let actual = patched.as_scaled(13.0).line_gap() - original.as_scaled(13.0).line_gap();
             assert!(
                 (actual - expected).abs() < 0.1,
                 "line gap grew by {actual}pt, expected {expected}pt"
@@ -952,10 +960,7 @@ mod tests {
 
     #[test]
     fn normalize_and_resolve_keep_loadable_path_outside_scan() {
-        let dir = std::env::temp_dir().join(format!(
-            "pinkdown-font-test-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("pinkdown-font-test-{}", std::process::id()));
         let _ = fs::create_dir_all(&dir);
         let path = dir.join("custom-out-of-scan.ttf");
         fs::write(&path, b"not a real sfnt").expect("write temp font stub");

@@ -88,7 +88,10 @@ fn ensure_bundle_parent_writable(app_bundle: &Path) -> Result<(), UpdateError> {
     let parent = app_bundle.parent().ok_or_else(|| {
         UpdateError::new("Could not determine the install directory for PinkDown.app")
     })?;
-    let probe = parent.join(format!(".pinkdown-update-write-test-{}", std::process::id()));
+    let probe = parent.join(format!(
+        ".pinkdown-update-write-test-{}",
+        std::process::id()
+    ));
     match fs::write(&probe, b"ok") {
         Ok(()) => {
             let _ = fs::remove_file(&probe);

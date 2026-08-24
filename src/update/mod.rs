@@ -193,9 +193,7 @@ impl UpdateChecker {
             Err(TryRecvError::Disconnected) => {
                 self.receiver = None;
                 self.progress = None;
-                PollResult::Ready(Err(UpdateError::new(
-                    "Update check did not complete",
-                )))
+                PollResult::Ready(Err(UpdateError::new("Update check did not complete")))
             }
         }
     }
@@ -363,8 +361,10 @@ fn download_release_asset(
         .filter(|checksum| checksum.len() == 64 && checksum.chars().all(|c| c.is_ascii_hexdigit()))
         .ok_or_else(|| UpdateError::new("Release checksum is missing or invalid"))?
         .to_ascii_lowercase();
-    let destination =
-        std::env::temp_dir().join(format!("pinkdown-{tag}-{}-{RELEASE_ASSET}", std::process::id()));
+    let destination = std::env::temp_dir().join(format!(
+        "pinkdown-{tag}-{}-{RELEASE_ASSET}",
+        std::process::id()
+    ));
 
     let result = (|| {
         const MAX_BYTES: u64 = 256 * 1024 * 1024;
@@ -649,10 +649,7 @@ mod tests {
 
     #[test]
     fn rate_limited_api_errors_explain_the_token_fix() {
-        let error = github_api_error(
-            403,
-            r#"{"message":"API rate limit exceeded for 1.2.3.4"}"#,
-        );
+        let error = github_api_error(403, r#"{"message":"API rate limit exceeded for 1.2.3.4"}"#);
         assert!(error.to_string().contains("GITHUB_TOKEN"));
         assert!(github_api_error(429, "API rate limit exceeded")
             .to_string()
@@ -727,7 +724,10 @@ mod tests {
         .status_line(&version);
         assert!(line.contains("Downloading PinkDown v1.6.0"));
         assert!(line.contains("25%"), "line was: {line}");
-        assert!(line.contains("5.0 MB") && line.contains("20.0 MB"), "line was: {line}");
+        assert!(
+            line.contains("5.0 MB") && line.contains("20.0 MB"),
+            "line was: {line}"
+        );
     }
 
     #[test]
@@ -739,7 +739,10 @@ mod tests {
             phase: DownloadPhase::Downloading,
         }
         .status_line(&version);
-        assert!(line.contains("1 KB") || line.contains("1500 B"), "line was: {line}");
+        assert!(
+            line.contains("1 KB") || line.contains("1500 B"),
+            "line was: {line}"
+        );
         assert!(!line.contains('%'), "line was: {line}");
     }
 

@@ -69,8 +69,7 @@ impl ExportJob {
         let (sender, receiver) = mpsc::channel();
         self.receiver = Some(receiver);
         thread::spawn(move || {
-            let result =
-                write_pdf_to(&path, &source, &title, base_dir.as_deref()).map(|()| path);
+            let result = write_pdf_to(&path, &source, &title, base_dir.as_deref()).map(|()| path);
             let _ = sender.send(result);
         });
         true
@@ -184,15 +183,9 @@ fn encode_file_url_path(path: &str) -> String {
     let mut out = String::with_capacity(path.len());
     for b in path.bytes() {
         match b {
-            b'A'..=b'Z'
-            | b'a'..=b'z'
-            | b'0'..=b'9'
-            | b'/'
-            | b'-'
-            | b'_'
-            | b'.'
-            | b'~'
-            | b':' => out.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'-' | b'_' | b'.' | b'~' | b':' => {
+                out.push(b as char)
+            }
             _ => {
                 out.push('%');
                 const HEX: &[u8; 16] = b"0123456789ABCDEF";
@@ -221,11 +214,17 @@ mod tests {
 
     #[test]
     fn encode_preserves_ascii_path_chars() {
-        assert_eq!(encode_file_url_path("/C:/Users/x/a-b_c.html"), "/C:/Users/x/a-b_c.html");
+        assert_eq!(
+            encode_file_url_path("/C:/Users/x/a-b_c.html"),
+            "/C:/Users/x/a-b_c.html"
+        );
     }
 
     #[test]
     fn encode_escapes_spaces() {
-        assert_eq!(encode_file_url_path("/C:/My Docs/a.html"), "/C:/My%20Docs/a.html");
+        assert_eq!(
+            encode_file_url_path("/C:/My Docs/a.html"),
+            "/C:/My%20Docs/a.html"
+        );
     }
 }

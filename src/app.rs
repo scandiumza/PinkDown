@@ -10,7 +10,7 @@ use crate::{
     preview,
     settings::Settings,
     theme::{self, BASE, FOAM, GOLD, HIGHLIGHT_LOW, IRIS, MUTED, ROSE, SUBTLE, SURFACE, TEXT},
-    update::{AUTO_INSTALL, PollResult, UpdateChecker, UpdateOutcome, UpdateUi},
+    update::{PollResult, UpdateChecker, UpdateOutcome, UpdateUi, AUTO_INSTALL},
 };
 
 #[cfg(target_os = "windows")]
@@ -62,9 +62,7 @@ impl PendingAction {
                 "Save your changes before opening another document?"
             }
             Self::Close => "Save your changes before closing PinkDown?",
-            Self::RestartForUpdate => {
-                "Save your changes before restarting to install the update?"
-            }
+            Self::RestartForUpdate => "Save your changes before restarting to install the update?",
         }
     }
 }
@@ -180,25 +178,21 @@ impl PinkDown {
         let base_dir = self.document.base_dir().map(PathBuf::from);
 
         match format {
-            ExportFormat::Html => match export::export_html(
-                &self.document.text,
-                &title,
-                base_dir.as_deref(),
-            ) {
-                Ok(Some(path)) => self.status = format!("Exported {}", file_name_label(&path)),
-                Ok(None) => {}
-                Err(error) => self.status = error,
-            },
+            ExportFormat::Html => {
+                match export::export_html(&self.document.text, &title, base_dir.as_deref()) {
+                    Ok(Some(path)) => self.status = format!("Exported {}", file_name_label(&path)),
+                    Ok(None) => {}
+                    Err(error) => self.status = error,
+                }
+            }
             ExportFormat::Pdf => {
                 let Some(path) = export::pick_destination(&title, ExportFormat::Pdf) else {
                     return;
                 };
-                if self.export_job.start_pdf(
-                    path,
-                    self.document.text.clone(),
-                    title,
-                    base_dir,
-                ) {
+                if self
+                    .export_job
+                    .start_pdf(path, self.document.text.clone(), title, base_dir)
+                {
                     self.status = "Exporting PDF\u{2026}".into();
                 } else {
                     self.status = "An export is already in progress\u{2026}".into();
@@ -273,9 +267,8 @@ impl PinkDown {
                 self.update_ui = UpdateUi::Staged {
                     version: version.clone(),
                 };
-                self.status = format!(
-                    "PinkDown v{version} is staged and will install when PinkDown closes"
-                );
+                self.status =
+                    format!("PinkDown v{version} is staged and will install when PinkDown closes");
                 self.request_action(PendingAction::RestartForUpdate, ctx);
             }
         }
@@ -340,9 +333,8 @@ impl PinkDown {
     fn start_update_check(&mut self) {
         match &self.update_ui {
             UpdateUi::Staged { version } => {
-                self.status = format!(
-                    "PinkDown v{version} is staged and will install when PinkDown closes"
-                );
+                self.status =
+                    format!("PinkDown v{version} is staged and will install when PinkDown closes");
             }
             UpdateUi::Downloading(available) => {
                 self.status = format!("Downloading PinkDown v{}\u{2026}", available.version);
@@ -445,7 +437,7 @@ impl PinkDown {
 
     fn show_toolbar(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("window-toolbar")
-            .exact_height(56.0)
+            .exact_height(52.0)
             .show_separator_line(false)
             .frame(egui::Frame::NONE)
             .show(ctx, |ui| {
@@ -474,18 +466,11 @@ impl PinkDown {
                             #[cfg(target_os = "macos")]
                             ui.add_space(MACOS_TRAFFIC_LIGHT_INSET);
 
-                            ui.vertical(|ui| {
-                                ui.spacing_mut().item_spacing.y = 2.0;
-                                ui.add_space(4.0);
-                                gradient_label(ui, "PinkDown", 14.0);
-                                ui.label(RichText::new("MARKDOWN STUDIO").size(8.0).color(MUTED));
-                            });
+                            brand(ui);
                             ui.add_space(16.0);
 
                             if toolbar_button(ui, "Open", 52.0)
-                                .on_hover_text(format!(
-                                    "Open a Markdown file  ({SHORTCUT_MOD}+O)"
-                                ))
+                                .on_hover_text(format!("Open a Markdown file  ({SHORTCUT_MOD}+O)"))
                                 .clicked()
                             {
                                 self.request_action(PendingAction::OpenDialog, ctx);
@@ -510,7 +495,8 @@ impl PinkDown {
                                 .on_hover_text("Choose the UI and preview typeface")
                                 .clicked()
                             {
-                                self.font_settings_draft = Some(self.settings.preferred_font.clone());
+                                self.font_settings_draft =
+                                    Some(self.settings.preferred_font.clone());
                             }
 
                             let export_response = toolbar_button(ui, "Export", 60.0)
@@ -555,15 +541,16 @@ impl PinkDown {
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.add_space(14.0);
-                    ui.label(
-                        RichText::new(self.document.display_name())
-                            .size(12.0)
-                            .color(if self.document.is_dirty() {
-                                GOLD
-                            } else {
-                                SUBTLE
-                            }),
-                    );
+                    let color = if self.document.is_dirty() {
+                        GOLD
+                    } else {
+                        SUBTLE
+                    };
+                    let path = self
+                        .document
+                        .path()
+                        .map_or_else(|| "Untitled".to_owned(), |path| path.display().to_string());
+                    ui.label(RichText::new(path).size(12.0).color(color));
                     ui.label(RichText::new(&self.status).size(11.0).color(MUTED));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.add_space(14.0);
@@ -587,14 +574,12 @@ impl PinkDown {
 
     fn show_editor(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default()
-            .frame(
-                egui::Frame::NONE.inner_margin(egui::Margin {
-                    left: 20,
-                    right: 20,
-                    top: 2,
-                    bottom: 8,
-                }),
-            )
+            .frame(egui::Frame::NONE.inner_margin(egui::Margin {
+                left: 20,
+                right: 20,
+                top: 2,
+                bottom: 8,
+            }))
             .show(ctx, |ui| {
                 let available = ui.available_size();
                 let usable = (available.x - EDITOR_SPLIT_GAP).max(0.0);
@@ -681,11 +666,15 @@ fn toolbar_button(ui: &mut egui::Ui, label: &str, width: f32) -> egui::Response 
     .inner
 }
 
-fn gradient_label(ui: &mut egui::Ui, text: &str, size: f32) {
+fn brand(ui: &mut egui::Ui) {
+    const SIZE: egui::Vec2 = egui::vec2(96.0, 32.0);
+    const SUBTITLE_Y: f32 = 16.0;
+
+    let (rect, _) = ui.allocate_exact_size(SIZE, egui::Sense::hover());
+    let text = "PinkDown";
+    let denominator = text.chars().count().saturating_sub(1).max(1) as f32;
     let mut job = egui::text::LayoutJob::default();
-    let characters: Vec<char> = text.chars().collect();
-    let denominator = characters.len().saturating_sub(1).max(1) as f32;
-    for (index, character) in characters.into_iter().enumerate() {
+    for (index, character) in text.chars().enumerate() {
         let progress = index as f32 / denominator;
         let color = if progress <= 0.5 {
             lerp_color(ROSE, IRIS, progress * 2.0)
@@ -696,13 +685,22 @@ fn gradient_label(ui: &mut egui::Ui, text: &str, size: f32) {
             &character.to_string(),
             0.0,
             TextFormat {
-                font_id: FontId::new(size, FontFamily::Monospace),
+                font_id: FontId::new(14.0, FontFamily::Monospace),
                 color,
                 ..Default::default()
             },
         );
     }
-    ui.label(job);
+
+    let title = ui.fonts(|fonts| fonts.layout_job(job));
+    ui.painter().galley(rect.min, title, Color32::WHITE);
+    ui.painter().text(
+        rect.min + egui::vec2(0.0, SUBTITLE_Y),
+        egui::Align2::LEFT_TOP,
+        "MARKDOWN EDITOR",
+        FontId::new(8.0, FontFamily::Proportional),
+        MUTED,
+    );
 }
 
 fn lerp_color(from: Color32, to: Color32, amount: f32) -> Color32 {
@@ -792,9 +790,13 @@ fn configure_title_drag(ui: &mut egui::Ui, ctx: &egui::Context) {
     let drag_rect = ui.max_rect();
 
     // click_and_drag: Sense::drag() has no CLICK bit, so double_clicked never fires.
-    let drag = ui.interact(drag_rect, ui.id().with("title-drag"), egui::Sense::click_and_drag());
+    let drag = ui.interact(
+        drag_rect,
+        ui.id().with("title-drag"),
+        egui::Sense::click_and_drag(),
+    );
     if drag.drag_started() {
-        ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+        crate::window::begin_title_drag(ctx);
     }
     // Double-click maximize is Windows custom-chrome behavior; macOS uses system zoom.
     #[cfg(target_os = "windows")]
@@ -854,11 +856,8 @@ fn window_button(ui: &mut egui::Ui, kind: WindowButton, tooltip: &str) -> egui::
     );
     let close = matches!(kind, WindowButton::Close);
     if response.hovered() || response.is_pointer_button_down_on() {
-        ui.painter().rect_filled(
-            rect,
-            0.0,
-            if close { LOVE } else { HIGHLIGHT_LOW },
-        );
+        ui.painter()
+            .rect_filled(rect, 0.0, if close { LOVE } else { HIGHLIGHT_LOW });
     }
     let color = if close && response.hovered() {
         TEXT
