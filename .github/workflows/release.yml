@@ -71,6 +71,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v7
         with:
           path: dist
@@ -80,6 +83,12 @@ jobs:
           for asset in dist/*; do
             sha256sum "$asset" > "$asset.sha256"
           done
+      - name: Generate release notes
+        run: |
+          python3 .github/scripts/release-notes.py \
+            "${{ github.ref_name }}" \
+            "${{ github.repository }}" \
+            > release-notes.md
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -88,5 +97,8 @@ jobs:
           if gh release view "${{ github.ref_name }}" > /dev/null 2>&1; then
             gh release upload "${{ github.ref_name }}" dist/* --clobber
           else
-            gh release create "${{ github.ref_name }}" --generate-notes --verify-tag dist/*
+            gh release create "${{ github.ref_name }}" \
+              --notes-file release-notes.md \
+              --verify-tag \
+              dist/*
           fi
