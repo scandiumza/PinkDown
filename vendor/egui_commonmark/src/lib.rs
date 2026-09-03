@@ -237,6 +237,30 @@ impl<'f> CommonMarkViewer<'f> {
             &self.options,
             text,
             None,
+            None,
+        );
+
+        response
+    }
+
+    /// Shows rendered markdown and scrolls an enclosing [`egui::ScrollArea`] to the element
+    /// containing `source_offset`.
+    pub fn show_at(
+        self,
+        ui: &mut egui::Ui,
+        cache: &mut CommonMarkCache,
+        text: &str,
+        source_offset: usize,
+    ) -> egui::InnerResponse<()> {
+        egui_commonmark_backend::prepare_show(cache, ui.ctx());
+
+        let (response, _) = parsers::pulldown::CommonMarkViewerInternal::new().show(
+            ui,
+            cache,
+            &self.options,
+            text,
+            None,
+            Some(source_offset),
         );
 
         response
@@ -260,6 +284,7 @@ impl<'f> CommonMarkViewer<'f> {
                 cache,
                 &self.options,
                 text,
+                None,
                 None,
             );
 

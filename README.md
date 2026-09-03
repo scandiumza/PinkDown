@@ -16,6 +16,7 @@ PinkDown is a fast, sleek, native split-pane Markdown editor and reader for Wind
 - Open, save, and save-as support for `.md`, `.markdown`, `.mdx`, and `.txt` files
 - Export to self-contained HTML, or to PDF via a system Chromium browser (Edge / Chrome)
 - Clear unsaved-change indicator and familiar `Ctrl/Cmd + O` / `Ctrl/Cmd + S` / `Ctrl/Cmd + Shift + S` shortcuts
+- Find text with `Ctrl + F` on Windows or `Cmd + F` on macOS; matches stay aligned in the source and preview panes, with `F3` / `Shift + F3` or `Cmd + G` / `Cmd + Shift + G` navigation
 - Choose any installed system typeface for the UI and preview (persisted across launches)
 - Markdown rendering for headings, emphasis, links, inline and fenced code, lists, task items, block quotes, dividers, and tables
 - UTF-8 and UTF-16 file decoding with encoding feedback in the status bar

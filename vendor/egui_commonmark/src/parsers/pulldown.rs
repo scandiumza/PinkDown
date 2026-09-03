@@ -83,6 +83,8 @@ pub struct CommonMarkViewerInternal {
     is_table: bool,
     is_blockquote: bool,
     checkbox_events: Vec<CheckboxClickEvent>,
+    source_offset: Option<usize>,
+    source_offset_scrolled: bool,
 }
 
 pub(crate) struct CheckboxClickEvent {
@@ -106,6 +108,8 @@ impl CommonMarkViewerInternal {
             is_table: false,
             is_blockquote: false,
             checkbox_events: Vec::new(),
+            source_offset: None,
+            source_offset_scrolled: false,
         }
     }
 }
@@ -115,6 +119,41 @@ fn parser_options_math(is_math_enabled: bool) -> pulldown_cmark::Options {
         parser_options() | pulldown_cmark::Options::ENABLE_MATH
     } else {
         parser_options()
+    }
+}
+
+fn should_scroll_event(
+    event: &pulldown_cmark::Event<'_>,
+    unpainted_captured_text: bool,
+    html_fn: bool,
+) -> bool {
+    match event {
+        pulldown_cmark::Event::Start(_) => false,
+        pulldown_cmark::Event::End(
+            pulldown_cmark::TagEnd::CodeBlock
+            | pulldown_cmark::TagEnd::HtmlBlock
+            | pulldown_cmark::TagEnd::Link
+            | pulldown_cmark::TagEnd::Image,
+        ) => true,
+        pulldown_cmark::Event::End(_) => false,
+        pulldown_cmark::Event::Text(_)
+        | pulldown_cmark::Event::Code(_)
+        | pulldown_cmark::Event::InlineHtml(_)
+            if unpainted_captured_text =>
+        {
+            false
+        }
+        pulldown_cmark::Event::Html(_) if html_fn => false,
+        pulldown_cmark::Event::SoftBreak | pulldown_cmark::Event::HardBreak => false,
+        pulldown_cmark::Event::Text(_)
+        | pulldown_cmark::Event::Code(_)
+        | pulldown_cmark::Event::InlineHtml(_)
+        | pulldown_cmark::Event::Html(_)
+        | pulldown_cmark::Event::Rule
+        | pulldown_cmark::Event::TaskListMarker(_)
+        | pulldown_cmark::Event::FootnoteReference(_)
+        | pulldown_cmark::Event::InlineMath(_)
+        | pulldown_cmark::Event::DisplayMath(_) => true,
     }
 }
 
@@ -128,7 +167,10 @@ impl CommonMarkViewerInternal {
         options: &CommonMarkOptions,
         text: &str,
         split_points_id: Option<Id>,
+        source_offset: Option<usize>,
     ) -> (egui::InnerResponse<()>, Vec<CheckboxClickEvent>) {
+        self.source_offset = source_offset;
+        self.source_offset_scrolled = false;
         let max_width = options.max_width(ui);
         let layout = egui::Layout::left_to_right(egui::Align::BOTTOM).with_main_wrap(true);
 
@@ -154,7 +196,15 @@ impl CommonMarkViewerInternal {
                     self.line.should_end_newline_forced = false;
                 }
 
-                self.process_event(ui, &mut events, e, src_span, cache, options, max_width);
+                self.process_event(
+                    ui,
+                    &mut events,
+                    e,
+                    src_span,
+                    cache,
+                    options,
+                    max_width,
+                );
 
                 if let Some(source_id) = split_points_id {
                     if should_add_split_point {
@@ -204,7 +254,7 @@ impl CommonMarkViewerInternal {
                 .id_salt(scroll_id)
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
-                    self.show(ui, cache, options, text, Some(source_id));
+                    self.show(ui, cache, options, text, Some(source_id), None);
                 });
             // Prevent repopulating points twice at startup
             scroll_cache(cache, &source_id).available_size = available_size;
@@ -636,6 +686,14 @@ impl CommonMarkViewerInternal {
         options: &CommonMarkOptions,
         max_width: f32,
     ) {
+        let start_position = ui.next_widget_position();
+        let unpainted_captured_text =
+            self.code_block.is_some() || self.link.is_some() || self.image.is_some();
+        let can_scroll = should_scroll_event(
+            &event,
+            unpainted_captured_text,
+            options.html_fn.is_some(),
+        );
         match event {
             pulldown_cmark::Event::Start(tag) => self.start_tag(ui, tag, options),
             pulldown_cmark::Event::End(tag) => self.end_tag(ui, tag, cache, options, max_width),
@@ -677,7 +735,7 @@ impl CommonMarkViewerInternal {
                     {
                         self.checkbox_events.push(CheckboxClickEvent {
                             checked: checkbox,
-                            span: src_span,
+                            span: src_span.clone(),
                         });
                     }
                 } else {
@@ -697,6 +755,34 @@ impl CommonMarkViewerInternal {
                 self.line.try_insert_end(ui);
             }
         }
+        if can_scroll {
+            self.scroll_to_source_offset(ui, src_span, start_position);
+        }
+    }
+
+    fn scroll_to_source_offset(
+        &mut self,
+        ui: &mut Ui,
+        src_span: Range<usize>,
+        start_position: Pos2,
+    ) {
+        if self.source_offset_scrolled {
+            return;
+        }
+        let Some(offset) = self.source_offset else {
+            return;
+        };
+        if !src_span.contains(&offset) {
+            return;
+        }
+        let height = ui.text_style_height(&TextStyle::Body);
+        let end_position = ui.next_widget_position();
+        ui.scroll_to_rect(
+            egui::Rect::from_two_pos(start_position, end_position)
+                .expand2(egui::vec2(8.0, height)),
+            Some(egui::Align::Center),
+        );
+        self.source_offset_scrolled = true;
     }
 
     fn event_text(&mut self, text: CowStr, ui: &mut Ui) {
@@ -718,9 +804,7 @@ impl CommonMarkViewerInternal {
             rich_text = rich_text.color(color);
         }
         if inline_code {
-            rich_text = rich_text
-                .monospace()
-                .color(ui.visuals().hyperlink_color);
+            rich_text = rich_text.monospace().color(ui.visuals().hyperlink_color);
         }
         if let Some(image) = &mut self.image {
             image.alt_text.push(rich_text);
@@ -1022,5 +1106,61 @@ impl CommonMarkViewerInternal {
                 });
             self.line.try_insert_end(ui);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_scroll_event;
+    use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+
+    fn first_scroll_kind(source: &str, offset: usize) -> &'static str {
+        let mut in_code = false;
+        let mut in_link = false;
+        let mut in_image = false;
+        for (event, span) in Parser::new(source).into_offset_iter() {
+            match &event {
+                Event::Start(Tag::CodeBlock(_)) => in_code = true,
+                Event::Start(Tag::Link { .. }) => in_link = true,
+                Event::Start(Tag::Image { .. }) => in_image = true,
+                _ => {}
+            }
+            let unpainted = in_code || in_link || in_image;
+            if span.contains(&offset) && should_scroll_event(&event, unpainted, false) {
+                return match event {
+                    Event::Text(_) => "text",
+                    Event::Code(_) => "code",
+                    Event::End(TagEnd::CodeBlock) => "end_code_block",
+                    Event::End(TagEnd::Link) => "end_link",
+                    Event::Start(_) => "start",
+                    _ => "other",
+                };
+            }
+            match event {
+                Event::End(TagEnd::CodeBlock) => in_code = false,
+                Event::End(TagEnd::Link) => in_link = false,
+                Event::End(TagEnd::Image) => in_image = false,
+                _ => {}
+            }
+        }
+        "none"
+    }
+
+    #[test]
+    fn paragraph_match_scrolls_to_text_not_start() {
+        let source = "hello world";
+        let offset = source.find("world").unwrap();
+        let first = Parser::new(source)
+            .into_offset_iter()
+            .find(|(_, span)| span.contains(&offset));
+        assert!(matches!(first, Some((Event::Start(Tag::Paragraph), _))));
+        assert_eq!(first_scroll_kind(source, offset), "text");
+    }
+
+    #[test]
+    fn fenced_code_match_scrolls_after_block_is_painted() {
+        let source = "before\n\n```\nline1\nFINDME\nline3\n```\n";
+        let offset = source.find("FINDME").unwrap();
+        assert_eq!(first_scroll_kind(source, offset), "end_code_block");
     }
 }

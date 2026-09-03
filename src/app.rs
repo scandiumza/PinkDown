@@ -1,4 +1,4 @@
-use std::{path::PathBuf, time::Duration};
+use std::{ops::Range, path::PathBuf, time::Duration};
 
 use eframe::egui::{self, Color32, FontFamily, FontId, RichText, TextFormat};
 use egui_commonmark::CommonMarkCache;
@@ -34,6 +34,57 @@ const STATUSBAR_HEIGHT: f32 = 28.0;
 const EDITOR_SPLIT_GAP: f32 = 12.0;
 /// Neither pane shrinks below this until the window itself is too narrow.
 const EDITOR_MIN_PANE: f32 = 180.0;
+const FIND_BAR_HEIGHT: f32 = 40.0;
+
+#[derive(Default)]
+struct FindState {
+    open: bool,
+    query: String,
+    matches: Vec<Range<usize>>,
+    current: Option<usize>,
+    jump_pending: bool,
+    focus_pending: bool,
+}
+
+impl FindState {
+    fn rebuild(&mut self, source: &str, reset_current: bool) {
+        self.matches.clear();
+        if !self.query.is_empty() {
+            self.matches.extend(
+                source
+                    .match_indices(&self.query)
+                    .map(|(start, found)| start..start + found.len()),
+            );
+        }
+
+        self.current = if self.matches.is_empty() {
+            None
+        } else if reset_current {
+            Some(0)
+        } else {
+            Some(self.current.unwrap_or(0).min(self.matches.len() - 1))
+        };
+        self.jump_pending = reset_current && self.current.is_some();
+    }
+
+    fn navigate(&mut self, reverse: bool) {
+        let count = self.matches.len();
+        if count == 0 {
+            return;
+        }
+        let current = self.current.unwrap_or(0);
+        self.current = Some(if reverse {
+            (current + count - 1) % count
+        } else {
+            (current + 1) % count
+        });
+        self.jump_pending = true;
+    }
+
+    fn current_match(&self) -> Option<&Range<usize>> {
+        self.current.and_then(|index| self.matches.get(index))
+    }
+}
 
 pub struct PinkDown {
     document: Document,
@@ -50,6 +101,7 @@ pub struct PinkDown {
     font_settings_draft: Option<String>,
     /// Source pane share of the two-pane row (0.5 = equal).
     split_ratio: f32,
+    find: FindState,
 }
 
 enum PendingAction {
@@ -89,6 +141,7 @@ impl PinkDown {
             settings,
             font_settings_draft: None,
             split_ratio: 0.5,
+            find: FindState::default(),
         };
         if let Some(path) = initial_path {
             app.open_path(path);
@@ -153,6 +206,10 @@ impl PinkDown {
                 let encoding = document.encoding_label();
                 self.document = document;
                 self.markdown_cache = CommonMarkCache::default();
+                self.find.rebuild(&self.document.text, true);
+                if !self.find.open {
+                    self.find.jump_pending = false;
+                }
                 self.status = format!("Opened {name} · {encoding}");
             }
             Err(error) => self.status = error,
@@ -399,6 +456,7 @@ impl eframe::App for PinkDown {
         self.sync_window_title(ctx);
         paint_window_shell(ctx);
         self.show_toolbar(ctx);
+        self.show_find_bar(ctx);
         self.show_statusbar(ctx);
         self.show_editor(ctx);
 
@@ -429,6 +487,28 @@ impl PinkDown {
             let force_dialog = ctx.input(|input| input.modifiers.shift);
             self.save(force_dialog);
         }
+        if ctx.input(|input| input.modifiers.command && input.key_pressed(egui::Key::F)) {
+            self.activate_find(true);
+        }
+
+        #[cfg(target_os = "macos")]
+        let find_navigation = ctx.input(|input| {
+            (input.modifiers.command && input.key_pressed(egui::Key::G))
+                .then_some(input.modifiers.shift)
+        });
+        #[cfg(not(target_os = "macos"))]
+        let find_navigation = ctx.input(|input| {
+            input
+                .key_pressed(egui::Key::F3)
+                .then_some(input.modifiers.shift)
+        });
+        if let Some(reverse) = find_navigation {
+            self.find_navigate(reverse);
+        }
+        if self.find.open && ctx.input(|input| input.key_pressed(egui::Key::Escape)) {
+            self.find.open = false;
+        }
+
         let path = ctx
             .input(|input| input.raw.dropped_files.clone())
             .into_iter()
@@ -438,6 +518,24 @@ impl PinkDown {
         if let Some(path) = path {
             self.request_action(PendingAction::OpenPath(path), ctx);
         }
+    }
+
+    fn activate_find(&mut self, focus: bool) {
+        let reset_current = !self.find.open;
+        self.find.open = true;
+        if focus {
+            self.find.focus_pending = true;
+        }
+        self.find.rebuild(&self.document.text, reset_current);
+    }
+
+    fn find_navigate(&mut self, reverse: bool) {
+        if self.find.query.is_empty() {
+            return;
+        }
+        self.find.open = true;
+        self.find.rebuild(&self.document.text, false);
+        self.find.navigate(reverse);
     }
 
     fn show_toolbar(&mut self, ctx: &egui::Context) {
@@ -494,6 +592,12 @@ impl PinkDown {
                         {
                             self.save(true);
                         }
+                        if toolbar_button(ui, "Find", 52.0)
+                            .on_hover_text(format!("Find in the document  ({SHORTCUT_MOD}+F)"))
+                            .clicked()
+                        {
+                            self.activate_find(true);
+                        }
                         if toolbar_button(ui, "Font", 52.0)
                             .on_hover_text("Choose the UI and preview typeface")
                             .clicked()
@@ -529,6 +633,106 @@ impl PinkDown {
                         }
                     },
                 );
+            });
+    }
+    fn show_find_bar(&mut self, ctx: &egui::Context) {
+        if !self.find.open {
+            return;
+        }
+
+        egui::TopBottomPanel::top("find-bar")
+            .exact_height(FIND_BAR_HEIGHT)
+            .show_separator_line(false)
+            .frame(
+                egui::Frame::NONE
+                    .fill(BASE)
+                    .inner_margin(egui::Margin::symmetric(20, 6)),
+            )
+            .show(ctx, |ui| {
+                ui.horizontal_centered(|ui| {
+                    ui.label(RichText::new("Find").size(12.0).strong().color(SUBTLE));
+                    let query_id = egui::Id::new("find-query");
+                    let enter_navigation =
+                        ui.memory(|memory| memory.has_focus(query_id)).then(|| {
+                            ui.input_mut(|input| {
+                                if input.consume_key(egui::Modifiers::SHIFT, egui::Key::Enter) {
+                                    Some(true)
+                                } else if input.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+                                {
+                                    Some(false)
+                                } else {
+                                    None
+                                }
+                            })
+                        });
+                    let query = ui
+                        .scope(|ui| {
+                            let widgets = &mut ui.style_mut().visuals.widgets;
+                            let capsule = egui::CornerRadius::same(10);
+                            widgets.inactive.corner_radius = capsule;
+                            widgets.hovered.corner_radius = capsule;
+                            widgets.active.corner_radius = capsule;
+                            widgets.open.corner_radius = capsule;
+                            let input_font = FontId::proportional(12.0);
+                            ui.add_sized(
+                                [240.0, 20.0],
+                                egui::TextEdit::singleline(&mut self.find.query)
+                                    .id(query_id)
+                                    .hint_text("Text in document")
+                                    .hint_text_font(input_font.clone())
+                                    .font(input_font)
+                                    .text_color(FOAM)
+                                    .margin(egui::Margin::symmetric(10, 0))
+                                    .vertical_align(egui::Align::Center),
+                            )
+                        })
+                        .inner;
+                    if self.find.focus_pending {
+                        query.request_focus();
+                    }
+                    if query.has_focus() {
+                        self.find.focus_pending = false;
+                    }
+                    if query.changed() {
+                        self.find.rebuild(&self.document.text, true);
+                    }
+                    if let Some(reverse) = enter_navigation.flatten() {
+                        self.find.navigate(reverse);
+                    }
+
+                    let match_label = self.find.current.map_or_else(
+                        || "No matches".to_owned(),
+                        |current| format!("{} / {}", current + 1, self.find.matches.len()),
+                    );
+                    ui.label(RichText::new(match_label).size(11.0).color(MUTED));
+
+                    if find_navigation_button(ui, "Previous", 80.0)
+                        .on_hover_text(if cfg!(target_os = "macos") {
+                            "Previous match  (Cmd+Shift+G)"
+                        } else {
+                            "Previous match  (Shift+F3)"
+                        })
+                        .clicked()
+                    {
+                        self.find.navigate(true);
+                    }
+                    if find_navigation_button(ui, "Next", 56.0)
+                        .on_hover_text(if cfg!(target_os = "macos") {
+                            "Next match  (Cmd+G)"
+                        } else {
+                            "Next match  (F3)"
+                        })
+                        .clicked()
+                    {
+                        self.find.navigate(false);
+                    }
+                    if find_close_button(ui)
+                        .on_hover_text("Close  (Esc)")
+                        .clicked()
+                    {
+                        self.find.open = false;
+                    }
+                });
             });
     }
 
@@ -580,6 +784,16 @@ impl PinkDown {
     }
 
     fn show_editor(&mut self, ctx: &egui::Context) {
+        let current_match = self.find.current_match().cloned();
+        let jump = self
+            .find
+            .jump_pending
+            .then(|| current_match.clone())
+            .flatten();
+        self.find.jump_pending = false;
+        let preview_source_offset = jump.as_ref().map(|range| range.start);
+        let mut source_changed = false;
+
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.inner_margin(egui::Margin {
                 left: 20,
@@ -604,7 +818,14 @@ impl PinkDown {
                     ui.allocate_ui_with_layout(
                         egui::vec2(usable * ratio, available.y),
                         egui::Layout::top_down(egui::Align::Min),
-                        |ui| source_panel(ui, &mut self.document.text),
+                        |ui| {
+                            source_changed = source_panel(
+                                ui,
+                                &mut self.document.text,
+                                current_match.as_ref(),
+                                jump.is_some(),
+                            );
+                        },
                     );
 
                     let response = editor_splitter(ui, available.y);
@@ -616,10 +837,21 @@ impl PinkDown {
                     ui.allocate_ui_with_layout(
                         egui::vec2(ui.available_width(), available.y),
                         egui::Layout::top_down(egui::Align::Min),
-                        |ui| preview::panel(ui, &self.document.text, &mut self.markdown_cache),
+                        |ui| {
+                            preview::panel(
+                                ui,
+                                &self.document.text,
+                                &mut self.markdown_cache,
+                                preview_source_offset,
+                            );
+                        },
                     );
                 });
             });
+
+        if source_changed {
+            self.find.rebuild(&self.document.text, false);
+        }
     }
 }
 
@@ -668,6 +900,56 @@ fn toolbar_button(ui: &mut egui::Ui, label: &str, width: f32) -> egui::Response 
         MUTED
     };
     paint_chrome_label(ui, rect, label, 12.0, color);
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+fn find_navigation_button(ui: &mut egui::Ui, label: &str, width: f32) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 26.0), egui::Sense::click());
+    let fill = if response.is_pointer_button_down_on() {
+        HIGHLIGHT_LOW
+    } else if response.hovered() {
+        SURFACE
+    } else {
+        BASE
+    };
+    ui.painter().rect(
+        rect,
+        0.0,
+        fill,
+        egui::Stroke::new(1.0, HIGHLIGHT_LOW),
+        egui::StrokeKind::Inside,
+    );
+    paint_chrome_label(ui, rect, label, 12.0, SUBTLE);
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+fn find_close_button(ui: &mut egui::Ui) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(egui::Vec2::splat(26.0), egui::Sense::click());
+    let fill = if response.is_pointer_button_down_on() {
+        HIGHLIGHT_LOW
+    } else if response.hovered() {
+        SURFACE
+    } else {
+        BASE
+    };
+    let center = rect.center();
+    ui.painter()
+        .circle(center, 12.0, fill, egui::Stroke::new(1.0, HIGHLIGHT_LOW));
+    let stroke = egui::Stroke::new(1.3, SUBTLE);
+    ui.painter().line_segment(
+        [
+            center + egui::vec2(-3.5, -3.5),
+            center + egui::vec2(3.5, 3.5),
+        ],
+        stroke,
+    );
+    ui.painter().line_segment(
+        [
+            center + egui::vec2(3.5, -3.5),
+            center + egui::vec2(-3.5, 3.5),
+        ],
+        stroke,
+    );
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
@@ -746,7 +1028,13 @@ fn lerp_color(from: Color32, to: Color32, amount: f32) -> Color32 {
     )
 }
 
-fn source_panel(ui: &mut egui::Ui, source: &mut String) {
+fn source_panel(
+    ui: &mut egui::Ui,
+    source: &mut String,
+    selection: Option<&Range<usize>>,
+    scroll_to_selection: bool,
+) -> bool {
+    let mut changed = false;
     egui::Frame::new()
         .fill(SURFACE)
         .stroke(egui::Stroke::new(1.0_f32, HIGHLIGHT_LOW))
@@ -760,18 +1048,95 @@ fn source_panel(ui: &mut egui::Ui, source: &mut String) {
                 .id_salt("source-scroll")
                 .auto_shrink([false; 2])
                 .show(ui, |ui| {
-                    ui.add_sized(
-                        [ui.available_width(), ui.available_height().max(200.0)],
-                        egui::TextEdit::multiline(source)
-                            .font(egui::TextStyle::Monospace)
-                            .text_color(TEXT)
-                            .frame(false)
-                            .code_editor()
-                            .desired_rows(30)
-                            .lock_focus(true),
-                    );
+                    let selection = selection.filter(|range| {
+                        range.end <= source.len()
+                            && source.is_char_boundary(range.start)
+                            && source.is_char_boundary(range.end)
+                    });
+                    let editor_id = ui.make_persistent_id("source-editor");
+                    let selected_chars = selection.map(|range| {
+                        let start = source[..range.start].chars().count();
+                        let end = start + source[range.clone()].chars().count();
+                        (start, end)
+                    });
+                    if scroll_to_selection {
+                        if let Some((start, end)) = selected_chars {
+                            let mut state =
+                                egui::TextEdit::load_state(ui.ctx(), editor_id).unwrap_or_default();
+                            state
+                                .cursor
+                                .set_char_range(Some(egui::text::CCursorRange::two(
+                                    egui::text::CCursor::new(start),
+                                    egui::text::CCursor::new(end),
+                                )));
+                            state.store(ui.ctx(), editor_id);
+                        }
+                    }
+
+                    let editor_has_focus = ui.memory(|memory| memory.has_focus(editor_id));
+                    let inactive_selection = (!editor_has_focus).then_some(selection).flatten();
+                    let mut layouter =
+                        |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
+                            let text = text.as_str();
+                            let mut job = egui::text::LayoutJob::default();
+                            job.wrap.max_width = wrap_width;
+                            let normal = TextFormat {
+                                font_id: egui::TextStyle::Monospace.resolve(ui.style()),
+                                color: TEXT,
+                                ..Default::default()
+                            };
+                            if let Some(range) = inactive_selection.filter(|range| {
+                                range.end <= text.len()
+                                    && text.is_char_boundary(range.start)
+                                    && text.is_char_boundary(range.end)
+                            }) {
+                                job.append(&text[..range.start], 0.0, normal.clone());
+                                let selection_visuals = ui.visuals().selection;
+                                let selected = TextFormat {
+                                    color: selection_visuals.stroke.color,
+                                    background: selection_visuals.bg_fill,
+                                    ..normal.clone()
+                                };
+                                job.append(&text[range.clone()], 0.0, selected);
+                                job.append(&text[range.end..], 0.0, normal);
+                            } else {
+                                job.append(text, 0.0, normal);
+                            }
+                            ui.fonts(|fonts| fonts.layout_job(job))
+                        };
+
+                    let mut editor = egui::TextEdit::multiline(source)
+                        .id(editor_id)
+                        .font(egui::TextStyle::Monospace)
+                        .text_color(TEXT)
+                        .frame(false)
+                        .code_editor()
+                        .desired_rows(30)
+                        .lock_focus(true)
+                        .desired_width(ui.available_width())
+                        .min_size(egui::vec2(
+                            ui.available_width(),
+                            ui.available_height().max(200.0),
+                        ));
+                    if inactive_selection.is_some() {
+                        editor = editor.layouter(&mut layouter);
+                    }
+                    let output = editor.show(ui);
+                    changed = output.response.changed();
+
+                    if scroll_to_selection {
+                        if let Some((start, _)) = selected_chars {
+                            let cursor_rect = output
+                                .galley
+                                .pos_from_cursor(egui::text::CCursor::new(start))
+                                .translate(output.galley_pos.to_vec2())
+                                .expand2(egui::vec2(8.0, 24.0));
+                            ui.scroll_to_rect(cursor_rect, Some(egui::Align::Center));
+                        }
+                    }
                 });
         });
+    changed
 }
 
 fn editor_splitter(ui: &mut egui::Ui, height: f32) -> egui::Response {
@@ -939,4 +1304,86 @@ fn window_button(ui: &mut egui::Ui, kind: WindowButton, tooltip: &str) -> egui::
         }
     };
     response.on_hover_text(tooltip)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FindState;
+
+    #[test]
+    fn find_navigation_wraps_in_both_directions() {
+        let mut find = FindState {
+            query: "pink".into(),
+            ..FindState::default()
+        };
+        find.rebuild("pink blue pink", true);
+
+        assert_eq!(find.current_match(), Some(&(0..4)));
+        find.navigate(false);
+        assert_eq!(find.current_match(), Some(&(10..14)));
+        find.navigate(false);
+        assert_eq!(find.current_match(), Some(&(0..4)));
+        find.navigate(true);
+        assert_eq!(find.current_match(), Some(&(10..14)));
+    }
+
+    #[test]
+    fn find_ranges_preserve_utf8_byte_offsets() {
+        let mut find = FindState {
+            query: "查找".into(),
+            ..FindState::default()
+        };
+        find.rebuild("开头 查找 结尾", true);
+
+        assert_eq!(find.current_match(), Some(&(7..13)));
+    }
+
+    #[test]
+    fn empty_query_has_no_match_or_jump() {
+        let mut find = FindState {
+            query: String::new(),
+            jump_pending: true,
+            ..FindState::default()
+        };
+        find.rebuild("anything", true);
+
+        assert!(find.matches.is_empty());
+        assert_eq!(find.current, None);
+        assert!(!find.jump_pending);
+    }
+
+    #[test]
+    fn rebuild_on_new_document_drops_old_ranges() {
+        let mut find = FindState {
+            query: "ab".into(),
+            ..FindState::default()
+        };
+        find.rebuild("ab cd ab", true);
+        assert_eq!(find.current_match(), Some(&(0..2)));
+
+        find.rebuild("zzzz ab", true);
+        find.jump_pending = false;
+
+        assert_eq!(find.matches, vec![5..7]);
+        assert_eq!(find.current_match(), Some(&(5..7)));
+        assert!(!find.jump_pending);
+
+        find.navigate(false);
+        assert_eq!(find.current_match(), Some(&(5..7)));
+    }
+
+    #[test]
+    fn navigate_rebuilds_against_replaced_source() {
+        let mut find = FindState {
+            query: "foo".into(),
+            ..FindState::default()
+        };
+        find.rebuild("foo old", true);
+        assert_eq!(find.current_match(), Some(&(0..3)));
+
+        find.rebuild("xx foo yy foo", false);
+        find.navigate(false);
+
+        assert_eq!(find.current_match(), Some(&(10..13)));
+    }
 }

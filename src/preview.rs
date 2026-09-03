@@ -3,7 +3,12 @@ use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 
 use crate::theme::{self, BASE, HIGHLIGHT_LOW, MUTED};
 
-pub fn panel(ui: &mut egui::Ui, source: &str, cache: &mut CommonMarkCache) {
+pub fn panel(
+    ui: &mut egui::Ui,
+    source: &str,
+    cache: &mut CommonMarkCache,
+    jump_source_offset: Option<usize>,
+) {
     egui::Frame::new()
         .fill(BASE)
         .stroke(egui::Stroke::new(1.0_f32, HIGHLIGHT_LOW))
@@ -20,7 +25,11 @@ pub fn panel(ui: &mut egui::Ui, source: &str, cache: &mut CommonMarkCache) {
                     ui.set_width(ui.available_width().max(1.0));
                     ui.scope(|ui| {
                         theme::configure_preview(ui);
-                        CommonMarkViewer::new().show(ui, cache, source);
+                        if let Some(source_offset) = jump_source_offset {
+                            CommonMarkViewer::new().show_at(ui, cache, source, source_offset);
+                        } else {
+                            CommonMarkViewer::new().show(ui, cache, source);
+                        }
                     });
                     ui.add_space(24.0);
                 });
