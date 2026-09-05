@@ -4,11 +4,11 @@ use std::{
 };
 
 use eframe::egui;
-use objc2::rc::Retained;
-use objc2::runtime::ProtocolObject;
-use objc2::{declare_class, msg_send_id, mutability, ClassType, DeclaredClass};
-use objc2_app_kit::{NSApplication, NSApplicationDelegate, NSApplicationDelegateReply};
-use objc2_foundation::{MainThreadMarker, NSArray, NSObject, NSObjectProtocol, NSString, NSURL};
+use objc2::ffi;
+use objc2::runtime::{AnyClass, AnyObject, Bool, Imp, Sel};
+use objc2::{msg_send, sel};
+use objc2_app_kit::NSApplication;
+use objc2_foundation::{MainThreadMarker, NSArray, NSURL};
 use winit::event_loop::EventLoop;
 
 use crate::app::PinkDown;
@@ -37,64 +37,46 @@ fn file_url_path(url: &NSURL) -> Option<PathBuf> {
         .map(|path| PathBuf::from(path.to_string()))
 }
 
-declare_class!(
-    struct AppDelegate;
+type OpenUrlsImp = extern "C" fn(&AnyObject, Sel, &NSApplication, &NSArray<NSURL>);
 
-    unsafe impl ClassType for AppDelegate {
-        type Super = NSObject;
-        type Mutability = mutability::MainThreadOnly;
-        const NAME: &'static str = "PinkDownAppDelegate";
-    }
+/// Winit 0.30 owns `NSApplication.delegate`. Replacing that object makes
+/// `sendEvent:` abort. Finder / Dock opens still need `application:openURLs:`,
+/// so the method is added onto the live delegate class instead.
+fn install_open_file_methods() {
+    let mtm = MainThreadMarker::new().expect("PinkDown must start on the macOS main thread");
+    let app = NSApplication::sharedApplication(mtm);
+    let delegate =
+        unsafe { app.delegate() }.expect("winit sets NSApplication.delegate during EventLoop::build");
+    let cls: &AnyClass = unsafe { msg_send![&delegate, class] };
+    add_open_urls(cls);
+}
 
-    impl DeclaredClass for AppDelegate {
-        type Ivars = ();
-    }
+fn add_open_urls(cls: &AnyClass) {
+    let name = sel!(application:openURLs:);
+    let cls_ptr = cls as *const AnyClass as *mut ffi::objc_class;
+    let imp: Imp = unsafe { std::mem::transmute(application_open_urls as OpenUrlsImp) };
+    let added = unsafe { ffi::class_addMethod(cls_ptr, name.as_ptr(), Some(imp), c"v@:@@".as_ptr()) };
+    debug_assert!(
+        Bool::from_raw(added).as_bool() || cls.instance_method(name).is_some(),
+        "failed to add application:openURLs: on {}",
+        cls.name()
+    );
+}
 
-    unsafe impl NSObjectProtocol for AppDelegate {}
-
-    unsafe impl NSApplicationDelegate for AppDelegate {
-        #[method(application:openURLs:)]
-        fn application_open_urls(&self, _application: &NSApplication, urls: &NSArray<NSURL>) {
-            if let Some(path) = urls.iter().filter_map(|url| file_url_path(&url)).last() {
-                enqueue(path);
-            }
-        }
-
-        #[method(application:openFiles:)]
-        fn application_open_files(
-            &self,
-            application: &NSApplication,
-            filenames: &NSArray<NSString>,
-        ) {
-            let reply = match filenames.iter().last() {
-                Some(filename) => {
-                    enqueue(PathBuf::from(filename.to_string()));
-                    NSApplicationDelegateReply::Success
-                }
-                None => NSApplicationDelegateReply::Failure,
-            };
-            unsafe { application.replyToOpenOrPrint(reply) };
-        }
-    }
-);
-
-impl AppDelegate {
-    fn new(mtm: MainThreadMarker) -> Retained<Self> {
-        let this = mtm.alloc().set_ivars(());
-        unsafe { msg_send_id![super(this), init] }
+extern "C" fn application_open_urls(
+    _this: &AnyObject,
+    _cmd: Sel,
+    _application: &NSApplication,
+    urls: &NSArray<NSURL>,
+) {
+    if let Some(path) = urls.iter().filter_map(|url| file_url_path(&url)).last() {
+        enqueue(path);
     }
 }
 
 pub fn run(options: eframe::NativeOptions, initial_path: Option<PathBuf>) -> eframe::Result<()> {
     let event_loop = EventLoop::<eframe::UserEvent>::with_user_event().build()?;
-
-    // Winit intentionally leaves NSApplication's delegate unset. Install ours
-    // after creating its event loop and before AppKit starts dispatching events.
-    // NSApplication.delegate is weak — keep `delegate` alive for the run loop.
-    let mtm = MainThreadMarker::new().expect("PinkDown must start on the macOS main thread");
-    let delegate = AppDelegate::new(mtm);
-    let application = NSApplication::sharedApplication(mtm);
-    application.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+    install_open_file_methods();
 
     let mut app = eframe::create_native(
         "PinkDown",
