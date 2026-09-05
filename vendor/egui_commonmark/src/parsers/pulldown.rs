@@ -157,6 +157,95 @@ fn should_scroll_event(
     }
 }
 
+const TABLE_MIN_CELL_WIDTH: f32 = 72.0;
+
+fn table_text_width(ui: &Ui, text: &str, monospace: bool) -> f32 {
+    let text_style = if monospace {
+        TextStyle::Monospace
+    } else {
+        TextStyle::Body
+    };
+    let font_id = text_style.resolve(ui.style());
+    ui.fonts(|fonts| {
+        fonts
+            .layout_no_wrap(text.to_owned(), font_id, ui.visuals().text_color())
+            .size()
+            .x
+    })
+}
+
+fn table_cell_preferred_width(
+    ui: &Ui,
+    events: &[(pulldown_cmark::Event<'_>, Range<usize>)],
+) -> f32 {
+    let mut line_width = 0.0_f32;
+    let mut widest_line = 0.0_f32;
+
+    for (event, _) in events {
+        match event {
+            pulldown_cmark::Event::Text(text)
+            | pulldown_cmark::Event::InlineHtml(text)
+            | pulldown_cmark::Event::Html(text)
+            | pulldown_cmark::Event::FootnoteReference(text)
+            | pulldown_cmark::Event::InlineMath(text)
+            | pulldown_cmark::Event::DisplayMath(text) => {
+                line_width += table_text_width(ui, text, false);
+            }
+            pulldown_cmark::Event::Code(text) => {
+                line_width += table_text_width(ui, text, true);
+            }
+            pulldown_cmark::Event::SoftBreak => {
+                line_width += table_text_width(ui, " ", false);
+            }
+            pulldown_cmark::Event::HardBreak => {
+                widest_line = widest_line.max(line_width);
+                line_width = 0.0;
+            }
+            pulldown_cmark::Event::TaskListMarker(_) => {
+                line_width += ui.spacing().interact_size.x;
+            }
+            pulldown_cmark::Event::Start(_)
+            | pulldown_cmark::Event::End(_)
+            | pulldown_cmark::Event::Rule => {}
+        }
+    }
+
+    widest_line.max(line_width)
+}
+
+fn fit_table_column_widths(preferred: &[f32], available: f32) -> Vec<f32> {
+    if preferred.is_empty() {
+        return Vec::new();
+    }
+
+    let desired = preferred
+        .iter()
+        .map(|width| width.max(TABLE_MIN_CELL_WIDTH))
+        .collect::<Vec<_>>();
+    let desired_total = desired.iter().sum::<f32>();
+    if desired_total <= available {
+        return desired;
+    }
+
+    let column_count = desired.len() as f32;
+    let minimum_total = TABLE_MIN_CELL_WIDTH * column_count;
+    if available <= minimum_total {
+        return vec![(available / column_count).max(1.0); desired.len()];
+    }
+
+    let extra_available = available - minimum_total;
+    let extra_needed = desired
+        .iter()
+        .map(|width| width - TABLE_MIN_CELL_WIDTH)
+        .sum::<f32>();
+    desired
+        .into_iter()
+        .map(|width| {
+            TABLE_MIN_CELL_WIDTH + (width - TABLE_MIN_CELL_WIDTH) * extra_available / extra_needed
+        })
+        .collect()
+}
+
 impl CommonMarkViewerInternal {
     /// Be aware that this acquires egui::Context internally.
     /// If split Id is provided then split points will be populated
@@ -196,15 +285,7 @@ impl CommonMarkViewerInternal {
                     self.line.should_end_newline_forced = false;
                 }
 
-                self.process_event(
-                    ui,
-                    &mut events,
-                    e,
-                    src_span,
-                    cache,
-                    options,
-                    max_width,
-                );
+                self.process_event(ui, &mut events, e, src_span, cache, options, max_width);
 
                 if let Some(source_id) = split_points_id {
                     if should_add_split_point {
@@ -539,18 +620,39 @@ impl CommonMarkViewerInternal {
         cache: &mut CommonMarkCache,
         options: &CommonMarkOptions,
         ui: &mut Ui,
-        max_width: f32,
+        _max_width: f32,
     ) {
         if self.is_table {
             self.line.try_insert_start(ui);
             let Table { header, rows } = parse_table(events);
-            let column_count = header.len().max(1);
+            let column_count = rows
+                .iter()
+                .map(Vec::len)
+                .max()
+                .unwrap_or(0)
+                .max(header.len())
+                .max(1);
             let gap = 12.0;
-            let horizontal_padding = 20.0;
-            let cell_width =
-                ((ui.available_width() - horizontal_padding - gap * (column_count - 1) as f32)
-                    / column_count as f32)
-                    .max(72.0);
+            let row_horizontal_padding = 20.0;
+            let outer_horizontal_padding = 2.0;
+
+            let mut preferred_widths = vec![0.0_f32; column_count];
+            for row in std::iter::once(&header).chain(rows.iter()) {
+                for (column_index, column) in row.iter().enumerate() {
+                    preferred_widths[column_index] =
+                        preferred_widths[column_index].max(table_cell_preferred_width(ui, column));
+                }
+            }
+
+            let gap_width = gap * (column_count - 1) as f32;
+            let available_for_columns = (ui.available_width()
+                - outer_horizontal_padding
+                - row_horizontal_padding
+                - gap_width)
+                .max(column_count as f32);
+            let column_widths = fit_table_column_widths(&preferred_widths, available_for_columns);
+            let row_content_width = column_widths.iter().sum::<f32>() + gap_width;
+            let table_content_width = row_content_width + row_horizontal_padding;
 
             let body_count = rows.len();
             egui::Frame::new()
@@ -558,7 +660,7 @@ impl CommonMarkViewerInternal {
                 .corner_radius(egui::CornerRadius::same(7))
                 .inner_margin(1.0)
                 .show(ui, |ui| {
-                    ui.set_min_width(ui.available_width());
+                    ui.set_width(table_content_width);
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
                         self.table_row(
@@ -566,8 +668,8 @@ impl CommonMarkViewerInternal {
                             header,
                             cache,
                             options,
-                            max_width,
-                            cell_width,
+                            &column_widths,
+                            row_content_width,
                             gap,
                             true,
                             false,
@@ -579,8 +681,8 @@ impl CommonMarkViewerInternal {
                                 row,
                                 cache,
                                 options,
-                                max_width,
-                                cell_width,
+                                &column_widths,
+                                row_content_width,
                                 gap,
                                 false,
                                 row_index % 2 == 1,
@@ -606,8 +708,8 @@ impl CommonMarkViewerInternal {
         columns: Vec<Vec<(pulldown_cmark::Event<'_>, Range<usize>)>>,
         cache: &mut CommonMarkCache,
         options: &CommonMarkOptions,
-        max_width: f32,
-        cell_width: f32,
+        column_widths: &[f32],
+        row_content_width: f32,
         gap: f32,
         is_header: bool,
         is_alternate: bool,
@@ -646,10 +748,11 @@ impl CommonMarkViewerInternal {
             .corner_radius(corner_radius)
             .inner_margin(egui::Margin::symmetric(10, 8))
             .show(ui, |ui| {
-                ui.set_min_width(ui.available_width());
+                ui.set_width(row_content_width);
                 ui.horizontal_top(|ui| {
                     ui.spacing_mut().item_spacing.x = gap;
-                    for column in columns {
+                    for (column_index, column) in columns.into_iter().enumerate() {
+                        let cell_width = column_widths[column_index];
                         ui.allocate_ui_with_layout(
                             egui::vec2(cell_width, 0.0),
                             egui::Layout::top_down(egui::Align::Min),
@@ -657,6 +760,14 @@ impl CommonMarkViewerInternal {
                                 ui.set_width(cell_width);
                                 ui.horizontal_wrapped(|ui| {
                                     for (event, src_span) in column {
+                                        if matches!(
+                                            event,
+                                            pulldown_cmark::Event::End(
+                                                pulldown_cmark::TagEnd::TableCell
+                                            )
+                                        ) {
+                                            continue;
+                                        }
                                         let start = std::mem::replace(
                                             &mut self.line.should_start_newline,
                                             false,
@@ -665,7 +776,7 @@ impl CommonMarkViewerInternal {
                                             &mut self.line.should_end_newline,
                                             false,
                                         );
-                                        self.event(ui, event, src_span, cache, options, max_width);
+                                        self.event(ui, event, src_span, cache, options, cell_width);
                                         self.line.should_start_newline = start;
                                         self.line.should_end_newline = end;
                                     }
@@ -689,11 +800,8 @@ impl CommonMarkViewerInternal {
         let start_position = ui.next_widget_position();
         let unpainted_captured_text =
             self.code_block.is_some() || self.link.is_some() || self.image.is_some();
-        let can_scroll = should_scroll_event(
-            &event,
-            unpainted_captured_text,
-            options.html_fn.is_some(),
-        );
+        let can_scroll =
+            should_scroll_event(&event, unpainted_captured_text, options.html_fn.is_some());
         match event {
             pulldown_cmark::Event::Start(tag) => self.start_tag(ui, tag, options),
             pulldown_cmark::Event::End(tag) => self.end_tag(ui, tag, cache, options, max_width),
@@ -778,8 +886,7 @@ impl CommonMarkViewerInternal {
         let height = ui.text_style_height(&TextStyle::Body);
         let end_position = ui.next_widget_position();
         ui.scroll_to_rect(
-            egui::Rect::from_two_pos(start_position, end_position)
-                .expand2(egui::vec2(8.0, height)),
+            egui::Rect::from_two_pos(start_position, end_position).expand2(egui::vec2(8.0, height)),
             Some(egui::Align::Center),
         );
         self.source_offset_scrolled = true;
@@ -1111,7 +1218,7 @@ impl CommonMarkViewerInternal {
 
 #[cfg(test)]
 mod tests {
-    use super::should_scroll_event;
+    use super::{TABLE_MIN_CELL_WIDTH, fit_table_column_widths, should_scroll_event};
     use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 
     fn first_scroll_kind(source: &str, offset: usize) -> &'static str {
@@ -1144,6 +1251,23 @@ mod tests {
             }
         }
         "none"
+    }
+
+    #[test]
+    fn table_columns_keep_natural_width_until_they_need_to_shrink() {
+        let roomy = fit_table_column_widths(&[40.0, 120.0], 400.0);
+        assert_eq!(roomy, vec![TABLE_MIN_CELL_WIDTH, 120.0]);
+
+        let constrained = fit_table_column_widths(&[144.0, 288.0], 240.0);
+        assert!((constrained.iter().sum::<f32>() - 240.0).abs() < f32::EPSILON);
+        assert!(constrained[1] > constrained[0]);
+        assert!(constrained[0] >= TABLE_MIN_CELL_WIDTH);
+    }
+
+    #[test]
+    fn table_columns_stay_inside_very_narrow_previews() {
+        let widths = fit_table_column_widths(&[100.0, 200.0, 300.0], 150.0);
+        assert_eq!(widths, vec![50.0; 3]);
     }
 
     #[test]
