@@ -137,6 +137,7 @@ footer .brand { color: var(--text); }
 .footer-bar { min-height: 88px; display: flex; align-items: center; justify-content: space-between; }
 .footer-bar > div { display: flex; gap: 25px; }
 .sister { display: flex; align-items: baseline; gap: 14px; padding-top: 16px; border-top: 1px solid var(--line); }
+.sister + .sister { margin-top: 16px; }
 .sister strong { flex: none; color: var(--text); font-weight: 600; }
 .sister:hover strong { color: var(--pink); }
 
