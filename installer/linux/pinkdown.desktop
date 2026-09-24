@@ -5,6 +5,7 @@ GenericName=Markdown Editor
 Comment=Fast, native split-pane Markdown editor and reader
 Exec=pinkdown %f
 Icon=pinkdown
+StartupWMClass=pinkdown
 Terminal=false
 Categories=Utility;TextEditor;
 MimeType=text/markdown;text/x-markdown;

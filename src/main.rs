@@ -22,6 +22,9 @@ fn main() -> eframe::Result<()> {
     let initial_path = std::env::args_os().nth(1).map(PathBuf::from);
     let viewport = egui::ViewportBuilder::default()
         .with_title("PinkDown")
+        // Wayland xdg_toplevel app_id: must match the .desktop file basename so
+        // docks (e.g. COSMIC) can pair the window with its launcher icon.
+        .with_app_id("pinkdown")
         // Windows: fully undecorated + app-drawn chrome (window::frame_chrome).
         // has_shadow is a macOS-only egui-winit hook; Win DWM polish lives in window.rs.
         .with_decorations(cfg!(not(target_os = "windows")))
