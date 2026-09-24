@@ -29,7 +29,9 @@ pub const CONTENT_FONT_SIZE: f32 = 13.0;
 pub fn icon_data() -> egui::IconData {
     #[cfg(target_os = "macos")]
     const ICON_BYTES: &[u8] = include_bytes!("../assets/pinkdown-macos-icon.png");
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    const ICON_BYTES: &[u8] = include_bytes!("../assets/pinkdown-linux-icon.png");
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     const ICON_BYTES: &[u8] = include_bytes!("../assets/pinkdown-icon.png");
 
     let image = image::load_from_memory_with_format(ICON_BYTES, image::ImageFormat::Png)

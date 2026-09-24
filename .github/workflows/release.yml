@@ -25,6 +25,12 @@ jobs:
           - os: macos-15-intel
             target: x86_64-apple-darwin
             artifact: pinkdown-macos-x64.dmg
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: pinkdown-linux-x86_64.tar.gz
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            artifact: pinkdown-linux-aarch64.tar.gz
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -50,7 +56,7 @@ jobs:
             throw 'Inno Setup did not create the expected Windows installer'
           }
       - name: Package macOS DMG
-        if: runner.os != 'Windows'
+        if: runner.os == 'macOS'
         shell: pwsh
         run: |
           $metadata = cargo metadata --format-version 1 --no-deps | ConvertFrom-Json
@@ -59,6 +65,19 @@ jobs:
             -Binary "target/${{ matrix.target }}/release/pinkdown" `
             -ArtifactName "${{ matrix.artifact }}" `
             -Version $version
+      - name: Package Linux tarball
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          staging=$(mktemp -d)
+          cp "target/${{ matrix.target }}/release/pinkdown" "$staging/"
+          cp installer/linux/install.sh installer/linux/pinkdown.desktop LICENSE "$staging/"
+          cp assets/pinkdown-linux-icon.png "$staging/"
+          chmod 755 "$staging/pinkdown" "$staging/install.sh"
+          mkdir -p dist
+          tar -czf "dist/${{ matrix.artifact }}" -C "$staging" .
+          echo "Packaged ${{ matrix.artifact }}:"
+          tar -tzf "dist/${{ matrix.artifact }}"
       - uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.artifact }}

@@ -4,7 +4,7 @@
 
 # PinkDown
 
-PinkDown is a fast, sleek, native split-pane Markdown editor and reader for Windows and macOS, built in Rust for instant startup and a polished desktop experience. Edit Markdown source beside a live preview in a calm Rosé Pine interface—without a browser, account, or workspace setup.
+PinkDown is a fast, sleek, native split-pane Markdown editor and reader for Windows, macOS, and Linux, built in Rust for instant startup and a polished desktop experience. Edit Markdown source beside a live preview in a calm Rosé Pine interface—without a browser, account, or workspace setup.
 
 [Website](https://3xian.github.io/PinkDown/) · [Download the latest release](https://github.com/3xian/PinkDown/releases/latest)
 
@@ -21,7 +21,7 @@ PinkDown is a fast, sleek, native split-pane Markdown editor and reader for Wind
 - Markdown rendering for headings, emphasis, links, inline and fenced code, lists, task items, block quotes, dividers, and tables
 - UTF-8 and UTF-16 file decoding with encoding feedback in the status bar
 - Native, resizable window with drag-and-drop file opening; on macOS, open files from Finder or the Dock
-- GitHub-based update check and install for Windows and macOS releases
+- GitHub-based update check and install for Windows, macOS, and Linux releases
 
 ## Using PinkDown
 
@@ -29,18 +29,20 @@ PinkDown is a fast, sleek, native split-pane Markdown editor and reader for Wind
 2. Select **Open**, drag a Markdown file into the window, or on macOS open a file from Finder or the Dock.
 3. Select **Save** to write changes to the current file, or **Save as** to choose a new location.
 4. Select **Export** to save the document as HTML or PDF. HTML is self-contained and ready to open in a browser; PDF uses a headless Chromium-based browser on your machine (Microsoft Edge or Google Chrome) so the print layout matches the HTML export. Relative images resolve from the open file’s folder. PDF export runs in the background and reports progress in the status bar.
-5. Use **Check updates** to compare the installed version against the latest GitHub tag. If a newer release is available, PinkDown asks for confirmation first. Choosing **Update** downloads the release package (with download progress in the status bar), verifies its published SHA-256 checksum, and installs it after PinkDown closes (Windows setup EXE; macOS DMG → replace `PinkDown.app`).
+5. Use **Check updates** to compare the installed version against the latest GitHub tag. If a newer release is available, PinkDown asks for confirmation first. Choosing **Update** downloads the release package (with download progress in the status bar), verifies its published SHA-256 checksum, and installs it after PinkDown closes (Windows setup EXE; macOS DMG → replace `PinkDown.app`; Linux tarball → replace the `pinkdown` binary).
 
 The Windows installer installs PinkDown for the current user and registers it as a Markdown handler. Keep the file-association option selected during setup; Windows will open PinkDown's Default Apps page so you can confirm it for `.md` files. Windows requires this system confirmation when another default app is already set.
 
+On Linux, unpack the release tarball and run `./install.sh` for a per-user install into `~/.local` (launcher, icon, and `.md` file association), or `./install.sh --system` for `/usr/local`. The tarball contains the `pinkdown` binary plus `install.sh`, `pinkdown.desktop`, and the icon.
+
 ## Downloads and updates
 
-Official builds are published on the [GitHub Releases page](https://github.com/3xian/PinkDown/releases). Windows is distributed as `pinkdown-windows-x64-setup.exe`; macOS is distributed as a DMG (`pinkdown-macos-arm64.dmg` / `pinkdown-macos-x64.dmg`) containing `PinkDown.app` and an Applications shortcut for Apple Silicon or Intel, with a native multi-resolution icon. Every download includes a SHA-256 checksum file.
+Official builds are published on the [GitHub Releases page](https://github.com/3xian/PinkDown/releases). Windows is distributed as `pinkdown-windows-x64-setup.exe`; macOS is distributed as a DMG (`pinkdown-macos-arm64.dmg` / `pinkdown-macos-x64.dmg`) containing `PinkDown.app` and an Applications shortcut for Apple Silicon or Intel, with a native multi-resolution icon; Linux is distributed as `pinkdown-linux-x86_64.tar.gz` / `pinkdown-linux-aarch64.tar.gz` with an `install.sh` desktop-integration script. Every download includes a SHA-256 checksum file.
 
 See the [Code signing policy](CODE_SIGNING.md) for release provenance, signing
 roles, and PinkDown's privacy policy.
 
-The in-app updater downloads `pinkdown-windows-x64-setup.exe` on Windows, or the matching architecture DMG (`pinkdown-macos-arm64.dmg` / `pinkdown-macos-x64.dmg`) on macOS. First-time macOS install is still drag-to-Applications from the DMG; once PinkDown runs from `PinkDown.app`, in-app updates replace that bundle automatically.
+The in-app updater downloads `pinkdown-windows-x64-setup.exe` on Windows, or the matching architecture DMG (`pinkdown-macos-arm64.dmg` / `pinkdown-macos-x64.dmg`) on macOS. First-time macOS install is still drag-to-Applications from the DMG; once PinkDown runs from `PinkDown.app`, in-app updates replace that bundle automatically. On Linux the updater downloads `pinkdown-linux-x86_64.tar.gz` / `pinkdown-linux-aarch64.tar.gz` and swaps the installed `pinkdown` binary in place after PinkDown exits (per-user installs; a `/usr` or `/usr/local` install needs a manual upgrade because it is not user-writable).
 
 GitHub's API limits unauthenticated requests to 60 per hour per IP, which shared VPN or NAT exit addresses can exhaust. If **Check updates** reports a rate-limit error, set a personal access token so PinkDown authenticates against the API (5,000 requests per hour): create a token at GitHub → Settings → Developer settings → Personal access tokens (a classic token with `repo` scope is enough), then set the `GITHUB_TOKEN` or `GH_TOKEN` environment variable for your user and restart PinkDown. If you use the GitHub CLI, `gh auth token` prints the token `gh` already stores.
 
@@ -65,6 +67,10 @@ cargo build --release --target aarch64-apple-darwin
 # Intel macOS
 rustup target add x86_64-apple-darwin
 cargo build --release --target x86_64-apple-darwin
+
+# Linux x64 / ARM64
+cargo build --release --target x86_64-unknown-linux-gnu
+cargo build --release --target aarch64-unknown-linux-gnu
 ```
 
 Compiled binaries are written to `target/<target>/release/`.

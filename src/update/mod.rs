@@ -3,6 +3,7 @@
 //! Flow: check tags → [`UpdateOutcome::Available`] → user confirms → download
 //! + stage → [`UpdateOutcome::InstallReady`] → app quits → helper applies package.
 
+mod linux;
 mod macos;
 mod windows;
 
@@ -24,7 +25,7 @@ use serde::Deserialize;
 const GITHUB_TAGS_URL: &str = "https://api.github.com/repos/3xian/PinkDown/tags?per_page=100";
 const PINKDOWN_USER_AGENT: &str = concat!("PinkDown/", env!("CARGO_PKG_VERSION"));
 
-#[cfg(any(target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 const GITHUB_RELEASES_URL: &str = "https://github.com/3xian/PinkDown/releases/download";
 
 #[cfg(target_os = "windows")]
@@ -33,9 +34,14 @@ const RELEASE_ASSET: &str = "pinkdown-windows-x64-setup.exe";
 const RELEASE_ASSET: &str = "pinkdown-macos-arm64.dmg";
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
 const RELEASE_ASSET: &str = "pinkdown-macos-x64.dmg";
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+const RELEASE_ASSET: &str = "pinkdown-linux-x86_64.tar.gz";
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+const RELEASE_ASSET: &str = "pinkdown-linux-aarch64.tar.gz";
 
 /// Whether this build can download and apply a release package automatically.
-pub const AUTO_INSTALL: bool = cfg!(any(target_os = "windows", target_os = "macos"));
+pub const AUTO_INSTALL: bool =
+    cfg!(any(target_os = "windows", target_os = "macos", target_os = "linux"));
 
 #[derive(Debug)]
 pub struct UpdateError(String);
@@ -249,7 +255,7 @@ fn download_and_stage_update(
     available: AvailableUpdate,
     mut on_progress: ProgressCallback,
 ) -> Result<UpdateOutcome, UpdateError> {
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
     {
         let downloaded = download_release_asset(&available.tag, &mut on_progress)?;
         let schedule_result = {
@@ -261,6 +267,10 @@ fn download_and_stage_update(
             {
                 macos::schedule(&downloaded)
             }
+            #[cfg(target_os = "linux")]
+            {
+                linux::schedule(&downloaded)
+            }
         };
         if let Err(error) = schedule_result {
             let _ = std::fs::remove_file(downloaded);
@@ -269,7 +279,7 @@ fn download_and_stage_update(
         Ok(UpdateOutcome::InstallReady(available.version))
     }
 
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
         let _ = available;
         let _ = on_progress;
@@ -343,7 +353,7 @@ fn version_from_tag(tag: &str) -> Result<Version, semver::Error> {
     Version::parse(tag.trim_start_matches('v'))
 }
 
-#[cfg(any(target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 fn download_release_asset(
     tag: &str,
     on_progress: &mut ProgressCallback,
@@ -446,7 +456,7 @@ fn download_release_asset(
     result
 }
 
-#[cfg(any(target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 fn download_text(url: &str) -> Result<String, UpdateError> {
     use std::io::Read;
 
@@ -462,7 +472,7 @@ fn download_text(url: &str) -> Result<String, UpdateError> {
     Ok(text)
 }
 
-#[cfg(any(target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 fn sha256_file(path: &Path) -> Result<String, UpdateError> {
     use std::{fs, io::Read};
 
@@ -486,7 +496,7 @@ fn sha256_file(path: &Path) -> Result<String, UpdateError> {
 
 /// Shared handoff: wait until the helper creates `ready`, or fail if it exits /
 /// times out before acknowledging.
-#[cfg(any(target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 fn wait_for_updater_ready(
     child: &mut Child,
     ready: &Path,
@@ -517,14 +527,14 @@ fn wait_for_updater_ready(
 }
 
 /// Paths used by both platform helpers for the ready/log/script handshake.
-#[cfg(any(target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 struct UpdaterPaths {
     script: PathBuf,
     ready: PathBuf,
     log: PathBuf,
 }
 
-#[cfg(any(target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 fn updater_paths(extension: &str) -> UpdaterPaths {
     let temp = std::env::temp_dir();
     let process_id = std::process::id();

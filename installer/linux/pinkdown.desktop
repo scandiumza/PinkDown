@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=PinkDown
+GenericName=Markdown Editor
+Comment=Fast, native split-pane Markdown editor and reader
+Exec=pinkdown %f
+Icon=pinkdown
+Terminal=false
+Categories=Utility;TextEditor;
+MimeType=text/markdown;text/x-markdown;
+Keywords=markdown;editor;md;preview;reader;
+StartupNotify=true
